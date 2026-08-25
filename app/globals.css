@@ -757,7 +757,8 @@ footer a:hover, footer button:hover { color: white; }
 .status-pill { display: inline-flex; align-items: center; justify-content: center; padding: 6px 9px; border-radius: 14px; background: #ece9e2; color: var(--ink-soft); font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .status-pill.active, .status-pill.captured, .status-pill.verified, .status-pill.sent { background: #deede5; color: #3e6e55; }
 .status-pill.draft, .status-pill.pending, .status-pill.not_configured { background: #f3ead8; color: #8d6b36; }
-.status-pill.archived, .status-pill.failed { background: #f1dee1; color: #924958; }
+.status-pill.archived, .status-pill.failed, .status-pill.paused, .status-pill.expired { background: #f1dee1; color: #924958; }
+.status-pill.scheduled, .status-pill.used-up { background: #f3ead8; color: #8d6b36; }
 .editor-photo-row { display: grid; grid-template-columns: 150px 1fr; gap: 22px; align-items: center; margin-top: 28px; padding: 20px; background: #edf2f0; }
 .editor-photo { width: 150px; height: 180px; background: white; }
 .editor-photo img { width: 100%; height: 100%; object-fit: contain; }
@@ -809,6 +810,32 @@ footer a:hover, footer button:hover { color: white; }
 .order-row select { min-height: 36px; border: 1px solid var(--line); background: white; font-size: 10px; }
 .order-alert { align-items: flex-start; }
 .order-alert button { border: 0; border-bottom: 1px solid currentColor; padding: 0; background: transparent; color: var(--aqua-deep); cursor: pointer; font-size: 8px; font-weight: 700; text-transform: uppercase; }
+.coupon-admin-layout { display: grid; grid-template-columns: 265px 1fr; gap: 15px; margin-top: 34px; }
+.coupon-list { align-self: start; border: 1px solid var(--line); background: var(--paper); }
+.coupon-list-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--line); color: var(--ink-soft); font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.coupon-list-heading small { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: #e7efed; color: var(--ink); font-size: 8px; }
+.coupon-list > button { width: 100%; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--line); padding: 14px 12px; background: transparent; cursor: pointer; text-align: left; }
+.coupon-list > button:hover, .coupon-list > button.active { background: #e7efed; }
+.coupon-list > button > div { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.coupon-list > button strong { overflow: hidden; font-family: var(--serif); font-size: 15px; font-weight: 400; letter-spacing: .04em; text-overflow: ellipsis; white-space: nowrap; }
+.coupon-list > button span:not(.status-pill) { overflow: hidden; color: var(--ink-soft); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.coupon-list > button .status-pill { padding: 5px 7px; font-size: 7px; }
+.coupon-list-empty { display: flex; flex-direction: column; gap: 8px; padding: 22px 16px; color: var(--ink-soft); }
+.coupon-list-empty strong { color: var(--ink); font-family: var(--serif); font-size: 16px; font-weight: 400; }
+.coupon-list-empty span { font-size: 10px; line-height: 1.5; }
+.coupon-editor { min-width: 0; padding: 30px; border: 1px solid var(--line); background: var(--paper); }
+.coupon-editor-intro { max-width: 610px; margin: 18px 0 0; color: var(--ink-soft); font-family: var(--serif); font-size: 14px; line-height: 1.5; }
+.coupon-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 17px 14px; margin-top: 28px; }
+.coupon-fields label { display: flex; flex-direction: column; gap: 7px; }
+.coupon-fields label.wide { grid-column: 1 / -1; }
+.coupon-fields label > span { color: var(--ink-soft); font-size: 8px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.coupon-fields input, .coupon-fields select { width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 0; padding: 10px 12px; outline: 0; background: white; font-family: var(--serif); font-size: 14px; }
+.coupon-fields input:focus, .coupon-fields select:focus { border-color: var(--aqua-deep); }
+.coupon-editor-footer { display: grid; grid-template-columns: 1fr auto auto; align-items: end; gap: 17px; margin: 28px -30px -30px; padding: 20px 30px; border-top: 1px solid var(--line); background: #f6f2ec; }
+.coupon-editor-footer > div { display: flex; flex-direction: column; gap: 6px; }
+.coupon-editor-footer small { color: var(--ink-soft); font-size: 9px; }
+.coupon-delete { border: 0; border-bottom: 1px solid currentColor; padding: 0 0 2px; background: transparent; color: #924958; cursor: pointer; font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.coupon-delete:disabled { opacity: .45; cursor: not-allowed; }
 .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 35px; }
 .settings-grid > article { display: grid; grid-template-columns: 60px 1fr; gap: 20px; padding: 27px; border: 1px solid var(--line); background: var(--paper); }
 .setting-logo { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 13px; color: white; font-family: var(--serif); font-size: 28px; }
@@ -830,6 +857,7 @@ footer a:hover, footer button:hover { color: white; }
   .metric-grid { grid-template-columns: 1fr 1fr; }
   .admin-two-col { grid-template-columns: 1fr; }
   .product-admin-layout { grid-template-columns: 220px 1fr; }
+  .coupon-admin-layout { grid-template-columns: 220px 1fr; }
   .variant-grid { grid-template-columns: repeat(4, 1fr); }
   .editor-publish { grid-template-columns: 1fr 1fr; }
   .editor-publish .button { grid-column: 1 / -1; }
@@ -840,7 +868,7 @@ footer a:hover, footer button:hover { color: white; }
   .admin-shell { display: block; padding-bottom: 72px; }
   .admin-sidebar { position: fixed; top: auto; right: 0; bottom: 0; left: 0; z-index: 50; height: 67px; flex-direction: row; padding: 7px 8px; }
   .admin-brand, .admin-user { display: none; }
-  .admin-sidebar nav { width: 100%; display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; margin: 0; }
+  .admin-sidebar nav { width: 100%; display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; margin: 0; }
   .admin-sidebar nav button { min-height: 53px; justify-content: center; padding: 3px; font-size: 8px; text-align: center; }
   .admin-sidebar nav button small { display: none; }
   .admin-main { padding: 30px 18px 60px; }
@@ -848,9 +876,14 @@ footer a:hover, footer button:hover { color: white; }
   .admin-topbar h1 { font-size: 42px; }
   .admin-topbar .admin-view-store { display: none; }
   .product-admin-layout { grid-template-columns: 1fr; }
+  .coupon-admin-layout { grid-template-columns: 1fr; }
   .product-list { display: flex; overflow-x: auto; }
   .product-list-search { display: none; }
   .product-list > button { min-width: 220px; border-right: 1px solid var(--line); border-bottom: 0; }
+  .coupon-list { display: flex; overflow-x: auto; }
+  .coupon-list-heading { display: none; }
+  .coupon-list-empty { min-width: 260px; }
+  .coupon-list > button { min-width: 220px; border-right: 1px solid var(--line); border-bottom: 0; }
   .integration-banner { grid-template-columns: 55px 1fr; }
   .integration-banner .button { grid-column: 1 / -1; }
   .orders-table { overflow-x: auto; }
@@ -867,6 +900,11 @@ footer a:hover, footer button:hover { color: white; }
   .editor-photo { width: 100px; height: 130px; }
   .editor-fields { grid-template-columns: 1fr; }
   .editor-fields label.wide { grid-column: auto; }
+  .coupon-editor { padding: 20px; }
+  .coupon-fields { grid-template-columns: 1fr; }
+  .coupon-fields label.wide { grid-column: auto; }
+  .coupon-editor-footer { grid-template-columns: 1fr auto; margin: 25px -20px -20px; padding: 18px 20px; }
+  .coupon-editor-footer > div { grid-column: 1 / -1; }
   .inventory-editor { grid-template-columns: 1fr; }
   .editor-publish { grid-template-columns: 1fr; margin: 25px -20px -20px; padding: 18px 20px; }
   .editor-publish .button { grid-column: auto; }

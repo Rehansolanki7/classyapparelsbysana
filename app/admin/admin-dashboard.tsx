@@ -36,7 +36,37 @@ type OrderItem = {
   trackingUrl: string;
 };
 
-type Tab = "overview" | "products" | "instagram" | "orders" | "settings";
+type CouponItem = {
+  id: string;
+  code: string;
+  type: "percentage" | "fixed";
+  value: number;
+  minOrderPaise: number;
+  maxDiscountPaise: number | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  usageLimit: number | null;
+  usageCount: number;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CouponDraft = {
+  id?: string;
+  code: string;
+  type: "percentage" | "fixed";
+  value: number;
+  minOrder: number;
+  maxDiscount: number | "";
+  startsAt: string;
+  endsAt: string;
+  usageLimit: number | "";
+  active: boolean;
+  usageCount: number;
+};
+
+type Tab = "overview" | "products" | "instagram" | "orders" | "coupons" | "settings";
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2400;
@@ -95,11 +125,60 @@ function orderStatusOptions(status: string) {
   return transitions[status] ?? [];
 }
 
+function dateForInput(value: string | null) {
+  if (!value) return "";
+  const date = new Date(`${value.replace(" ", "T").replace(/Z$/, "")}Z`);
+  if (Number.isNaN(date.valueOf())) return "";
+  return new Date(date.valueOf() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function dateForRequest(value: string) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? value : date.toISOString();
+}
+
+function emptyCouponDraft(): CouponDraft {
+  return { code: "", type: "percentage", value: 10, minOrder: 0, maxDiscount: "", startsAt: "", endsAt: "", usageLimit: "", active: true, usageCount: 0 };
+}
+
+function couponToDraft(coupon: CouponItem): CouponDraft {
+  return {
+    id: coupon.id,
+    code: coupon.code,
+    type: coupon.type,
+    value: coupon.type === "fixed" ? coupon.value / 100 : coupon.value,
+    minOrder: coupon.minOrderPaise / 100,
+    maxDiscount: coupon.maxDiscountPaise === null ? "" : coupon.maxDiscountPaise / 100,
+    startsAt: dateForInput(coupon.startsAt),
+    endsAt: dateForInput(coupon.endsAt),
+    usageLimit: coupon.usageLimit ?? "",
+    active: coupon.active,
+    usageCount: coupon.usageCount,
+  };
+}
+
+function couponAvailability(coupon: CouponItem) {
+  const now = Date.now();
+  const startsAt = coupon.startsAt ? new Date(`${coupon.startsAt.replace(" ", "T")}Z`).valueOf() : null;
+  const endsAt = coupon.endsAt ? new Date(`${coupon.endsAt.replace(" ", "T")}Z`).valueOf() : null;
+  if (!coupon.active) return { label: "Paused", tone: "paused" };
+  if (startsAt && startsAt > now) return { label: "Scheduled", tone: "scheduled" };
+  if (endsAt && endsAt < now) return { label: "Expired", tone: "expired" };
+  if (coupon.usageLimit !== null && coupon.usageCount >= coupon.usageLimit) return { label: "Used up", tone: "used-up" };
+  return { label: "Active", tone: "active" };
+}
+
+function couponOffer(coupon: CouponItem) {
+  return coupon.type === "percentage" ? `${coupon.value}% off` : `${rupees(coupon.value / 100)} off`;
+}
+
 export default function AdminDashboard({
   user,
   initialProducts,
   initialImports,
   initialOrders,
+  initialCoupons,
   signOutPath,
   notificationConfigured,
 }: {
@@ -107,6 +186,7 @@ export default function AdminDashboard({
   initialProducts: CatalogProduct[];
   initialImports: ImportItem[];
   initialOrders: OrderItem[];
+  initialCoupons: CouponItem[];
   signOutPath: string;
   notificationConfigured: boolean;
 }) {
@@ -114,8 +194,11 @@ export default function AdminDashboard({
   const [products, setProducts] = useState(initialProducts);
   const [imports, setImports] = useState(initialImports);
   const [orders, setOrders] = useState(initialOrders);
+  const [coupons, setCoupons] = useState(initialCoupons);
   const [selectedId, setSelectedId] = useState(initialProducts[0]?.id ?? "");
   const [draft, setDraft] = useState<CatalogProduct | null>(initialProducts[0] ?? null);
+  const [selectedCouponId, setSelectedCouponId] = useState(initialCoupons[0]?.id ?? "");
+  const [couponDraft, setCouponDraft] = useState<CouponDraft>(() => initialCoupons[0] ? couponToDraft(initialCoupons[0]) : emptyCouponDraft());
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const pendingImports = imports.filter((item) => item.status === "pending");
@@ -123,6 +206,8 @@ export default function AdminDashboard({
   const paidOrders = orders.filter((order) => order.paymentStatus === "captured");
   const revenue = paidOrders.reduce((sum, order) => sum + order.totalPaise / 100, 0);
   const selected = useMemo(() => products.find((product) => product.id === selectedId) ?? null, [products, selectedId]);
+  const selectedCoupon = useMemo(() => coupons.find((coupon) => coupon.id === selectedCouponId) ?? null, [coupons, selectedCouponId]);
+  const selectedCouponStatus = selectedCoupon ? couponAvailability(selectedCoupon) : null;
 
   function selectProduct(id: string) {
     const product = products.find((item) => item.id === id) ?? null;
@@ -219,6 +304,85 @@ export default function AdminDashboard({
     else { setNotice("Could not create a new draft"); setBusy(false); }
   }
 
+  function selectCoupon(id: string) {
+    const coupon = coupons.find((item) => item.id === id);
+    if (!coupon) return;
+    setSelectedCouponId(id);
+    setCouponDraft(couponToDraft(coupon));
+    setNotice("");
+  }
+
+  function addCoupon() {
+    setSelectedCouponId("");
+    setCouponDraft(emptyCouponDraft());
+    setNotice("");
+  }
+
+  async function saveCoupon() {
+    setBusy(true);
+    setNotice("");
+    const payload = {
+      code: couponDraft.code,
+      type: couponDraft.type,
+      value: couponDraft.value,
+      minOrder: couponDraft.minOrder,
+      maxDiscount: couponDraft.type === "percentage" && couponDraft.maxDiscount !== "" ? couponDraft.maxDiscount : null,
+      startsAt: dateForRequest(couponDraft.startsAt),
+      endsAt: dateForRequest(couponDraft.endsAt),
+      usageLimit: couponDraft.usageLimit === "" ? null : couponDraft.usageLimit,
+      active: couponDraft.active,
+    };
+    const response = await fetch("/api/admin/coupons", {
+      method: couponDraft.id ? "PATCH" : "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(couponDraft.id ? { ...payload, id: couponDraft.id } : payload),
+    });
+    let result: { error?: string; coupon?: CouponItem } = {};
+    try {
+      result = await response.json() as { error?: string; coupon?: CouponItem };
+    } catch {
+      // The common failure mode here is an expired admin session, for which the status still gives useful feedback.
+    }
+    if (!response.ok || !result.coupon) {
+      setNotice(result.error || "Could not save this coupon.");
+    } else {
+      const saved = result.coupon;
+      setCoupons((current) => couponDraft.id ? current.map((item) => item.id === saved.id ? saved : item) : [saved, ...current]);
+      setSelectedCouponId(saved.id);
+      setCouponDraft(couponToDraft(saved));
+      setNotice(couponDraft.id ? "Coupon updated." : "Coupon created and ready to use.");
+    }
+    setBusy(false);
+  }
+
+  async function deleteCoupon() {
+    if (!couponDraft.id || !window.confirm(`Delete coupon ${couponDraft.code || "this coupon"}? This cannot be undone.`)) return;
+    setBusy(true);
+    setNotice("");
+    const response = await fetch("/api/admin/coupons", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: couponDraft.id }),
+    });
+    let result: { error?: string } = {};
+    try {
+      result = await response.json() as { error?: string };
+    } catch {
+      // A non-JSON response is surfaced through the generic notice below.
+    }
+    if (!response.ok) {
+      setNotice(result.error || "Could not delete this coupon.");
+    } else {
+      const remaining = coupons.filter((item) => item.id !== couponDraft.id);
+      setCoupons(remaining);
+      const next = remaining[0];
+      setSelectedCouponId(next?.id ?? "");
+      setCouponDraft(next ? couponToDraft(next) : emptyCouponDraft());
+      setNotice("Coupon deleted.");
+    }
+    setBusy(false);
+  }
+
   async function syncInstagram() {
     setBusy(true);
     setNotice("");
@@ -309,6 +473,7 @@ export default function AdminDashboard({
     { id: "products", label: "Products", count: products.length },
     { id: "instagram", label: "Instagram queue", count: pendingImports.length },
     { id: "orders", label: "Orders", count: orders.length },
+    { id: "coupons", label: "Coupons", count: coupons.length },
     { id: "settings", label: "Integrations" },
   ];
 
@@ -321,7 +486,7 @@ export default function AdminDashboard({
       </aside>
 
       <section className="admin-main">
-        <header className="admin-topbar"><div><p className="kicker">Sana’s private workspace</p><h1>{nav.find((item) => item.id === tab)?.label}</h1></div><div><Link className="admin-view-store" href="/" target="_blank">View store ↗</Link>{tab === "products" && <button className="button button-dark" onClick={addProduct} disabled={busy}>+ New product</button>}</div></header>
+        <header className="admin-topbar"><div><p className="kicker">Sana’s private workspace</p><h1>{nav.find((item) => item.id === tab)?.label}</h1></div><div><Link className="admin-view-store" href="/" target="_blank">View store ↗</Link>{tab === "products" && <button className="button button-dark" onClick={addProduct} disabled={busy}>+ New product</button>}{tab === "coupons" && <button className="button button-dark" onClick={addCoupon} disabled={busy}>+ New coupon</button>}</div></header>
         {notice && <div className="admin-notice" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
 
         {tab === "overview" && <div className="admin-overview">
@@ -369,6 +534,41 @@ export default function AdminDashboard({
             </div>
           </article>)}
         </div>}</div>}
+
+        {tab === "coupons" && <div className="coupon-admin-layout">
+          <div className="coupon-list">
+            <div className="coupon-list-heading"><span>Discount codes</span><small>{coupons.length}</small></div>
+            {coupons.length === 0 ? <div className="coupon-list-empty"><strong>No coupons yet</strong><span>Create a code to offer a discount at checkout.</span></div> : coupons.map((coupon) => {
+              const availability = couponAvailability(coupon);
+              return <button key={coupon.id} className={selectedCouponId === coupon.id ? "active" : ""} onClick={() => selectCoupon(coupon.id)}>
+                <div><strong>{coupon.code}</strong><span>{couponOffer(coupon)}{coupon.minOrderPaise ? ` · min. ${rupees(coupon.minOrderPaise / 100)}` : ""}</span></div>
+                <small className={`status-pill ${availability.tone}`}>{availability.label}</small>
+              </button>;
+            })}
+          </div>
+
+          <form className="coupon-editor" onSubmit={(event) => { event.preventDefault(); void saveCoupon(); }}>
+            <div className="editor-heading"><div><p className="kicker">{couponDraft.id ? "Discount code" : "New discount code"}</p><h2>{couponDraft.id ? couponDraft.code || "Untitled coupon" : "Create a coupon"}</h2></div>{selectedCouponStatus && <span className={`status-pill ${selectedCouponStatus.tone}`}>{selectedCouponStatus.label}</span>}</div>
+            <p className="coupon-editor-intro">Customers can enter this code during checkout. Pausing a code leaves its past order history intact.</p>
+
+            <div className="coupon-fields">
+              <label className="wide"><span>Coupon code</span><input value={couponDraft.code} onChange={(event) => setCouponDraft({ ...couponDraft, code: event.target.value.toUpperCase() })} placeholder="SANA10" maxLength={64} autoCapitalize="characters" /></label>
+              <label><span>Discount type</span><select value={couponDraft.type} onChange={(event) => setCouponDraft({ ...couponDraft, type: event.target.value as CouponDraft["type"], maxDiscount: event.target.value === "fixed" ? "" : couponDraft.maxDiscount })}><option value="percentage">Percentage off</option><option value="fixed">Fixed amount off</option></select></label>
+              <label><span>{couponDraft.type === "percentage" ? "Discount (%)" : "Discount (₹)"}</span><input type="number" min="1" max={couponDraft.type === "percentage" ? 100 : 100000} step="1" value={couponDraft.value} onChange={(event) => setCouponDraft({ ...couponDraft, value: Number(event.target.value) })} /></label>
+              <label><span>Minimum order (₹)</span><input type="number" min="0" max="100000" step="1" value={couponDraft.minOrder} onChange={(event) => setCouponDraft({ ...couponDraft, minOrder: Number(event.target.value) })} /></label>
+              {couponDraft.type === "percentage" && <label><span>Max discount (₹, optional)</span><input type="number" min="1" max="100000" step="1" value={couponDraft.maxDiscount} onChange={(event) => setCouponDraft({ ...couponDraft, maxDiscount: event.target.value === "" ? "" : Number(event.target.value) })} placeholder="No cap" /></label>}
+              <label><span>Starts at (optional)</span><input type="datetime-local" value={couponDraft.startsAt} onChange={(event) => setCouponDraft({ ...couponDraft, startsAt: event.target.value })} /></label>
+              <label><span>Ends at (optional)</span><input type="datetime-local" value={couponDraft.endsAt} onChange={(event) => setCouponDraft({ ...couponDraft, endsAt: event.target.value })} /></label>
+              <label><span>Usage limit (optional)</span><input type="number" min="1" max="1000000" step="1" value={couponDraft.usageLimit} onChange={(event) => setCouponDraft({ ...couponDraft, usageLimit: event.target.value === "" ? "" : Number(event.target.value) })} placeholder="Unlimited" /></label>
+            </div>
+
+            <div className="coupon-editor-footer">
+              <div><label className="feature-toggle"><input type="checkbox" checked={couponDraft.active} onChange={(event) => setCouponDraft({ ...couponDraft, active: event.target.checked })} /><span>Coupon is active</span></label>{couponDraft.id && <small>{couponDraft.usageCount} use{couponDraft.usageCount === 1 ? "" : "s"}{couponDraft.usageLimit !== "" ? ` of ${couponDraft.usageLimit}` : ""}</small>}</div>
+              {couponDraft.id && <button type="button" className="coupon-delete" onClick={deleteCoupon} disabled={busy || couponDraft.usageCount > 0} title={couponDraft.usageCount > 0 ? "Used coupons can be deactivated but not deleted." : undefined}>Delete</button>}
+              <button type="submit" className="button button-dark" disabled={busy}>{busy ? "Saving…" : couponDraft.id ? "Save coupon" : "Create coupon"}</button>
+            </div>
+          </form>
+        </div>}
 
         {tab === "settings" && <div className="settings-grid"><article><div className="setting-logo razor">R</div><div><h2>Razorpay</h2><p>UPI, cards and payment verification. Add test keys first, make a complete test order, then switch to live keys.</p><span>Needs secure keys</span></div></article><article><div className="setting-logo mail">@</div><div><h2>Order email alerts</h2><p>Sends the admin an immediate paid-order email and gives the customer a confirmation copy.</p><span className={notificationConfigured ? "connected" : ""}>{notificationConfigured ? "Connected" : "Needs email connection"}</span></div></article><article><div className="setting-logo insta">◎</div><div><h2>Instagram</h2><p>Imports recent media into a private review queue. Requires an Instagram professional account and a long-lived access token.</p><span>Needs Meta connection</span></div></article><article><div className="setting-logo whats">◔</div><div><h2>WhatsApp</h2><p>Customer messages open directly to the number printed on your current product label: +91 77159 10151.</p><span className="connected">Connected</span></div></article><article><div className="setting-logo ship">↗</div><div><h2>Shipping tracking</h2><p>Add the courier, AWB number and tracking link to each order. Customers can check progress without creating an account.</p><span className="connected">Ready</span></div></article><div className="security-note"><strong>Security by design</strong><p>The shop never receives card or UPI credentials. Prices are recalculated on the server, stock is reserved before payment, successful payments are signature-verified, admin routes require the private access key, and uploaded files are validated before storage.</p></div></div>}
       </section>
