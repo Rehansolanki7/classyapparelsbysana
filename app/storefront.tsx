@@ -1,0 +1,295 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { CatalogProduct } from "../lib/catalog";
+
+type BagItem = { productId: string; size: string; quantity: number };
+const BAG_KEY = "classy-apparels-bag-v1";
+const BAG_COOKIE = "classy_apparels_bag";
+
+function storedBag(): BagItem[] {
+  const local = window.localStorage.getItem(BAG_KEY);
+  const cookie = document.cookie.split("; ").find((item) => item.startsWith(`${BAG_COOKIE}=`))?.slice(BAG_COOKIE.length + 1);
+  return JSON.parse(local || (cookie ? decodeURIComponent(cookie) : "[]")) as BagItem[];
+}
+
+const sizeRows = [
+  ["S", "36", "32", "40"],
+  ["M", "38", "34", "42"],
+  ["L", "40", "36", "44"],
+  ["XL", "42", "38", "46"],
+  ["XXL", "44", "40", "48"],
+  ["XXXL", "46", "42", "50"],
+  ["4XL", "48", "44", "52"],
+];
+
+function money(value: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function Icon({ name, size = 20 }: { name: string; size?: number }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  if (name === "search") return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>;
+  if (name === "bag") return <svg {...common}><path d="M5 8h14l-1 12H6L5 8Z" /><path d="M9 9V6a3 3 0 0 1 6 0v3" /></svg>;
+  if (name === "heart") return <svg {...common}><path d="M20.8 4.6a5.4 5.4 0 0 0-7.6 0L12 5.8l-1.2-1.2a5.4 5.4 0 0 0-7.6 7.6L12 21l8.8-8.8a5.4 5.4 0 0 0 0-7.6Z" /></svg>;
+  if (name === "user") return <svg {...common}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>;
+  if (name === "menu") return <svg {...common}><path d="M4 7h16M4 12h16M4 17h16" /></svg>;
+  if (name === "close") return <svg {...common}><path d="m6 6 12 12M18 6 6 18" /></svg>;
+  if (name === "arrow") return <svg {...common}><path d="M5 12h14M14 7l5 5-5 5" /></svg>;
+  if (name === "chevron") return <svg {...common}><path d="m9 18 6-6-6-6" /></svg>;
+  if (name === "truck") return <svg {...common}><path d="M3 6h11v11H3zM14 10h4l3 3v4h-7z" /><circle cx="7" cy="18" r="2" /><circle cx="18" cy="18" r="2" /></svg>;
+  if (name === "shield") return <svg {...common}><path d="M12 3 5 6v5c0 4.7 2.9 8.2 7 10 4.1-1.8 7-5.3 7-10V6l-7-3Z" /><path d="m9 12 2 2 4-4" /></svg>;
+  if (name === "rotate") return <svg {...common}><path d="M4 4v6h6" /><path d="M20 20v-6h-6" /><path d="M5.6 15a8 8 0 0 0 13-3M18.4 9A8 8 0 0 0 5.5 6" /></svg>;
+  if (name === "instagram") return <svg {...common}><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r=".7" fill="currentColor" stroke="none" /></svg>;
+  return null;
+}
+
+export default function Storefront({ product, products }: { product: CatalogProduct; products: CatalogProduct[] }) {
+  const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [sizeOpen, setSizeOpen] = useState(false);
+  const [selectedSize, setSelectedSize] = useState("");
+  const [selectedImage, setSelectedImage] = useState(0);
+  const [bag, setBag] = useState<BagItem[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const sizes = product.variants.filter((variant) => variant.active).map((variant) => variant.size);
+  const galleryImages = product.images.length ? product.images : ["/products/sea-mist-01.webp"];
+  const coverImage = galleryImages[0];
+  const styledImage = galleryImages[1] ?? coverImage;
+
+  useEffect(() => {
+    document.body.classList.toggle("no-scroll", menuOpen || cartOpen || sizeOpen || searchOpen);
+    return () => document.body.classList.remove("no-scroll");
+  }, [menuOpen, cartOpen, sizeOpen, searchOpen]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const stored = storedBag();
+        if (Array.isArray(stored)) {
+          setBag(stored.slice(0, 10).flatMap((item) => {
+            const bagProduct = products.find((candidate) => candidate.id === item.productId);
+            const variant = bagProduct?.variants.find((candidate) => candidate.active && candidate.stock > 0 && candidate.size === item.size);
+            if (!bagProduct || !variant) return [];
+            return [{ productId: bagProduct.id, size: variant.size, quantity: Math.max(1, Math.min(5, variant.stock, Math.floor(Number(item.quantity) || 1))) }];
+          }));
+        }
+      } catch {
+        window.localStorage.removeItem(BAG_KEY);
+      }
+      setHydrated(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [products]);
+
+  useEffect(() => {
+    if (hydrated) window.localStorage.setItem(BAG_KEY, JSON.stringify(bag));
+  }, [bag, hydrated]);
+
+  const bagLines = useMemo(() => bag.flatMap((item, index) => {
+    const bagProduct = products.find((candidate) => candidate.id === item.productId);
+    const variant = bagProduct?.variants.find((candidate) => candidate.size === item.size);
+    return bagProduct && variant ? [{ item, product: bagProduct, variant, index }] : [];
+  }), [bag, products]);
+  const bagCount = bagLines.reduce((sum, line) => sum + line.item.quantity, 0);
+  const bagSubtotal = bagLines.reduce((sum, line) => sum + line.product.price * line.item.quantity, 0);
+  const checkoutHref = `/checkout?cart=${encodeURIComponent(JSON.stringify(bag))}`;
+
+  function saveBag(next: BagItem[]) {
+    const serialized = JSON.stringify(next.slice(0, 10));
+    try { window.localStorage.setItem(BAG_KEY, serialized); } catch { /* Cookie backup remains available. */ }
+    // eslint-disable-next-line react-hooks/immutability -- document.cookie is the navigation-safe cart fallback.
+    document.cookie = `${BAG_COOKIE}=${encodeURIComponent(serialized)}; path=/; max-age=2592000; samesite=lax`;
+    return next;
+  }
+
+  function addToBag() {
+    if (!selectedSize) {
+      setNotice("Choose your size first");
+      document.getElementById("size-picker")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    const variant = product.variants.find((item) => item.size === selectedSize);
+    const index = bag.findIndex((item) => item.productId === product.id && item.size === selectedSize);
+    const next = index < 0 ? [...bag, { productId: product.id, size: selectedSize, quantity: 1 }] : bag.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Math.min(item.quantity + 1, variant?.stock ?? 1, 5) } : item);
+    saveBag(next);
+    setBag(next);
+    setNotice("");
+    setCartOpen(true);
+  }
+
+  function changeQuantity(index: number, quantity: number) {
+    const next = bag.flatMap((item, itemIndex) => {
+      if (itemIndex !== index) return [item];
+      if (quantity <= 0) return [];
+      const bagProduct = products.find((candidate) => candidate.id === item.productId);
+      const stock = bagProduct?.variants.find((variant) => variant.size === item.size)?.stock ?? 1;
+      return [{ ...item, quantity: Math.min(quantity, stock, 5) }];
+    });
+    saveBag(next);
+    setBag(next);
+  }
+
+  return (
+    <main>
+      <a className="skip-link" href="#shop">Skip to products</a>
+      <div className="announcement"><span>Complimentary shipping over ₹1,499</span><span className="announcement-dot" /><span>New Sana edit is live</span></div>
+
+      <header className="site-header">
+        <button className="icon-button mobile-only" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Icon name="menu" size={23} /></button>
+        <a className="wordmark" href="#top" aria-label="Classy Apparels home"><span className="wordmark-main">Classy Apparels</span></a>
+        <nav className="desktop-nav" aria-label="Main navigation">
+          <a href="/shop">Shop</a><a href="/track-order">Track order</a><button onClick={() => setSizeOpen(true)}>Size guide</button><a href="#story">Our story</a>
+        </nav>
+        <div className="header-actions">
+          <button className="icon-button desktop-icon" onClick={() => setSearchOpen(true)} aria-label="Search"><Icon name="search" /></button>
+          <a className="icon-button desktop-icon" href="/account" aria-label="My orders"><Icon name="user" /></a>
+          <button className="icon-button cart-button" onClick={() => setCartOpen(true)} aria-label={`Open bag with ${bagCount} items`}><Icon name="bag" />{bagCount > 0 && <span className="cart-count">{bagCount}</span>}</button>
+        </div>
+      </header>
+
+      <section className="hero" id="top">
+        <div className="hero-copy">
+          <p className="kicker">Boutique pieces · selected in Mumbai</p>
+          <h1>Wear the moment.<br /><em>Keep the feeling.</em></h1>
+          <p className="hero-body">Limited, considered pieces for women who love colour, comfort and a little quiet drama.</p>
+          <div className="hero-actions">
+            <a className="button button-dark" href="/shop">Shop now <Icon name="arrow" size={18} /></a>
+            <a className="text-link" href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer">Follow on Instagram <Icon name="instagram" size={17} /></a>
+          </div>
+          <div className="hero-note"><span>01</span><p>{product.color ? `${product.name} in ${product.color}.` : product.description}</p></div>
+        </div>
+        <div className="hero-visual">
+          <div className="hero-image-backdrop" style={{ backgroundImage: `url(${styledImage})` }} />
+          <img src={styledImage} alt={`${product.name}, styled view`} className="hero-image" />
+          <div className="hero-card"><span>Just arrived</span><strong>{product.name}</strong><small>{money(product.price)}</small></div>
+        </div>
+      </section>
+
+      <section className="service-strip" aria-label="Shopping benefits">
+        <div><Icon name="truck" /><span><strong>Free delivery</strong><small>On prepaid orders over ₹1,499</small></span></div>
+        <div><Icon name="rotate" /><span><strong>Easy size exchange</strong><small>Request within 3 days of delivery</small></span></div>
+        <div><Icon name="shield" /><span><strong>Secure checkout</strong><small>UPI, cards and trusted payments</small></span></div>
+      </section>
+
+      <section className="editorial-intro" id="shop">
+        <div><p className="kicker">New arrival</p><h2>Made to be noticed.<br />Easy enough for every day.</h2></div>
+        <p>Our drops are intentionally small. Each piece is photographed honestly so you can see the colour, fall and finishing before you choose.</p>
+      </section>
+
+      <section className="product-showcase">
+        <div className="gallery-column">
+          <div className="main-product-image">
+            <img src={galleryImages[selectedImage] ?? coverImage} alt={`${product.name}, view ${selectedImage + 1}`} />
+            <span className="product-badge">{product.badge}</span>
+          </div>
+          <div className="thumbnail-row" aria-label="Product images">
+            {galleryImages.map((image, index) => <button key={image} className={selectedImage === index ? "active" : ""} onClick={() => setSelectedImage(index)} aria-label={`View product image ${index + 1}`}><img src={image} alt="" /></button>)}
+          </div>
+        </div>
+
+        <div className="product-details">
+          <p className="kicker">{product.eyebrow}</p>
+          <h2>{product.name}</h2>
+          <div className="price-line"><strong>{money(product.price)}</strong>{product.compareAt > product.price && <><del>{money(product.compareAt)}</del><span>Save {money(product.compareAt - product.price)}</span></>}</div>
+          <p className="tax-note">Inclusive of all taxes</p>
+          <p className="product-description">{product.description}</p>
+          {product.includes && <div className="includes"><span>Includes</span><strong>{product.includes}</strong></div>}
+          <div className="size-heading" id="size-picker"><span>Select size</span><button onClick={() => setSizeOpen(true)}>Find my size</button></div>
+          <div className="size-options">{sizes.map((size) => {
+            const soldOut = (product.variants.find((variant) => variant.size === size)?.stock ?? 0) <= 0;
+            return <button key={size} disabled={soldOut} className={selectedSize === size ? "selected" : ""} onClick={() => { setSelectedSize(size); setNotice(""); }} aria-pressed={selectedSize === size}>{size}</button>;
+          })}</div>
+          {notice && <p className="field-notice" role="alert">{notice}</p>}
+          <button className="button button-dark add-button" onClick={addToBag} disabled={!hydrated}>Add to bag <span>{money(product.price)}</span></button>
+          <a className="button whatsapp-product-button" href={`https://wa.me/917715910151?text=${encodeURIComponent(`Hi Sana, I would like to know more about the ${product.name}${selectedSize ? ` in size ${selectedSize}` : ""}.`)}`} target="_blank" rel="noreferrer">Ask Sana on WhatsApp</a>
+          <details open><summary>Details &amp; care <Icon name="chevron" size={17} /></summary><p>{product.care || "Follow the care instructions on the garment label."} Product colours can vary slightly across phone and screen settings.</p></details>
+          <details><summary>Delivery &amp; exchanges <Icon name="chevron" size={17} /></summary><p>Dispatch is typically planned within 2–4 working days. Unworn pieces with tags can be requested for a size exchange within 3 days of delivery.</p></details>
+        </div>
+      </section>
+
+      <section className="detail-story">
+        <div className="detail-copy"><p className="kicker">The detail edit</p><h2>Thoughtful details, seen up close.</h2><p>{product.description}</p><button className="text-link" onClick={() => { setSelectedImage(Math.min(2, galleryImages.length - 1)); document.getElementById("shop")?.scrollIntoView({ behavior: "smooth" }); }}>See the close-up <Icon name="arrow" size={17} /></button></div>
+        <div className="detail-image"><img src={galleryImages[2] ?? coverImage} alt={`${product.name}, detail view`} /></div>
+        <div className="detail-image second"><img src={galleryImages[4] ?? styledImage} alt={`${product.name}, alternate detail view`} /></div>
+      </section>
+
+      <section className="story-section" id="story">
+        <div className="story-mark">S</div>
+        <div><p className="kicker">A note from Sana</p><h2>Fashion should feel personal.</h2><p>Classy Apparels by Sana began as an Instagram boutique built around a simple idea: share lovely pieces honestly, answer every sizing question with care, and make shopping feel like talking to someone you trust.</p></div>
+        <a href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer" className="button button-outline">Meet us on Instagram</a>
+      </section>
+
+      <section className="newsletter">
+        <p className="kicker">The Sana circle</p><h2>First look at every new drop.</h2><p>Message “JOIN” on WhatsApp for launch alerts, restocks and private previews.</p>
+        <a className="newsletter-join" href={`https://wa.me/917715910151?text=${encodeURIComponent("JOIN — Please add me to Classy Apparels by Sana drop updates.")}`} target="_blank" rel="noreferrer">Join on WhatsApp <Icon name="arrow" /></a>
+      </section>
+
+      <footer>
+        <div className="footer-brand"><span className="wordmark-main">Classy Apparels</span><p>Thoughtful everyday elegance, selected by Sana in small drops.</p></div>
+        <div><h3>Shop</h3><a href="/shop">Shop</a><button onClick={() => setSizeOpen(true)}>Size guide</button></div>
+        <div><h3>Help</h3><a href="/account">My orders</a><a href="/track-order">Track order</a><a href="/policies#shipping">Shipping</a><a href="/policies#exchange">Exchange policy</a><a href="https://wa.me/917715910151" target="_blank" rel="noreferrer">WhatsApp us</a></div>
+        <div><h3>Follow</h3><a href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer">Instagram</a><a href="/admin">Admin</a></div>
+        <div className="footer-bottom"><span>© 2026 Classy Apparels by Sana</span><span>Made with care in India</span></div>
+      </footer>
+
+      <a className="whatsapp-float" href={`https://wa.me/917715910151?text=${encodeURIComponent("Hi Sana, I found you through your website and need help choosing an outfit.")}`} target="_blank" rel="noreferrer" aria-label="Chat with Sana on WhatsApp">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M27.2 4.7A15.5 15.5 0 0 0 2.8 23.4L.6 31.5l8.3-2.2a15.5 15.5 0 0 0 7.4 1.9h.1A15.5 15.5 0 0 0 27.2 4.7Zm-10.8 24a12.9 12.9 0 0 1-6.6-1.8l-.5-.3-4.9 1.3 1.3-4.8-.3-.5a13 13 0 1 1 11 6.1Zm7.1-9.7c-.4-.2-2.3-1.1-2.7-1.3-.4-.1-.6-.2-.9.2-.3.4-1 1.3-1.3 1.6-.2.3-.5.3-.9.1-2.3-1.1-3.8-2-5.3-4.6-.4-.7.4-.7 1.1-2.2.1-.3 0-.5-.1-.7l-1.2-2.9c-.3-.8-.7-.7-.9-.7h-.8c-.3 0-.7.1-1.1.5-.4.4-1.4 1.4-1.4 3.4s1.5 4 1.7 4.3c.2.3 2.9 4.4 7 6.2 2.6 1.1 3.6 1.2 4.9 1 1.5-.2 2.3-1.1 2.6-2.1.3-1 .3-1.9.2-2.1-.1-.2-.4-.3-.8-.5Z" /></svg><span>Chat with Sana</span>
+      </a>
+
+      <div className={`overlay ${menuOpen || cartOpen || sizeOpen || searchOpen ? "show" : ""}`} onClick={() => { setMenuOpen(false); setCartOpen(false); setSizeOpen(false); setSearchOpen(false); }} />
+
+      <aside className={`side-panel menu-panel ${menuOpen ? "open" : ""}`} aria-hidden={!menuOpen}>
+        <div className="panel-header"><span>Menu</span><button className="icon-button" onClick={() => setMenuOpen(false)} aria-label="Close menu"><Icon name="close" /></button></div>
+        <nav><a href="/shop">Shop <Icon name="chevron" /></a><a href="/account">My orders <Icon name="chevron" /></a><a href="/track-order">Track order <Icon name="chevron" /></a><button onClick={() => { setMenuOpen(false); setSizeOpen(true); }}>Size guide <Icon name="chevron" /></button><a href="#story" onClick={() => setMenuOpen(false)}>Our story <Icon name="chevron" /></a></nav>
+        <a className="menu-instagram" href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer"><Icon name="instagram" /> @classy_apparels_bysana</a>
+      </aside>
+
+      <aside className={`side-panel cart-panel ${cartOpen ? "open" : ""}`} aria-hidden={!cartOpen}>
+        <div className="panel-header"><span>Your bag · {bagCount}</span><button className="icon-button" onClick={() => setCartOpen(false)} aria-label="Close bag"><Icon name="close" /></button></div>
+        {!bagLines.length ? (
+          <div className="empty-cart"><Icon name="bag" size={34} /><h2>Your bag is waiting</h2><p>Start with the first Sana edit.</p><button className="button button-dark" onClick={() => { setCartOpen(false); document.getElementById("shop")?.scrollIntoView({ behavior: "smooth" }); }}>Explore the drop</button></div>
+        ) : (
+          <div className="cart-content">
+            <div className="shop-bag-items">{bagLines.map(({ item, product: bagProduct, index }) => <div className="shop-bag-item" key={`${item.productId}-${item.size}`}><img src={bagProduct.images[0]} alt="" /><div><strong>{bagProduct.name}</strong><span>Size {item.size}</span><small>{money(bagProduct.price * item.quantity)}</small><div className="quantity-control"><button onClick={() => changeQuantity(index, item.quantity - 1)} aria-label="Decrease quantity">−</button><span>{item.quantity}</span><button onClick={() => changeQuantity(index, item.quantity + 1)} aria-label="Increase quantity">+</button></div></div><button className="bag-remove" onClick={() => changeQuantity(index, 0)} aria-label={`Remove ${bagProduct.name}`}>×</button></div>)}</div>
+            <div className="shipping-meter"><div><span>{bagSubtotal >= 1499 ? "You’re getting complimentary shipping" : `${money(1499 - bagSubtotal)} away from free shipping`}</span><strong>{bagSubtotal >= 1499 ? "✓" : ""}</strong></div><div className="meter-track"><div className="meter-fill" style={{ width: `${Math.min(100, (bagSubtotal / 1499) * 100)}%` }} /></div></div>
+            <div className="cart-summary"><div><span>Subtotal</span><strong>{money(bagSubtotal)}</strong></div><small>Shipping and final availability are confirmed at checkout.</small></div>
+            <a href={checkoutHref} className="button button-dark checkout-button">Secure checkout <Icon name="arrow" size={18} /></a><p className="secure-line"><Icon name="shield" size={16} /> Protected checkout · UPI · Cards</p>
+          </div>
+        )}
+      </aside>
+
+      <aside className={`side-panel size-panel ${sizeOpen ? "open" : ""}`} aria-hidden={!sizeOpen}>
+        <div className="panel-header"><span>Find your size</span><button className="icon-button" onClick={() => setSizeOpen(false)} aria-label="Close size guide"><Icon name="close" /></button></div>
+        <div className="size-guide-content"><p>Body measurements in inches. For a relaxed fit, choose the larger size when you fall between two measurements.</p><table><thead><tr><th>Size</th><th>Bust</th><th>Waist</th><th>Hip</th></tr></thead><tbody>{sizeRows.map((row) => <tr key={row[0]}>{row.map((value, index) => <td key={value}>{index === 0 ? <strong>{value}</strong> : value}</td>)}</tr>)}</tbody></table><div className="measure-note"><strong>How to measure</strong><p>Keep the tape comfortably level around the fullest part of your bust and hips, and around your natural waist.</p></div><a className="button whatsapp-product-button" href={`https://wa.me/917715910151?text=${encodeURIComponent("Hi Sana, I need help selecting my size.")}`} target="_blank" rel="noreferrer">Need help? Ask Sana</a></div>
+      </aside>
+
+      <div className={`search-overlay ${searchOpen ? "open" : ""}`} aria-hidden={!searchOpen}>
+        <div className="search-top"><span>What are you looking for?</span><button className="icon-button" onClick={() => setSearchOpen(false)} aria-label="Close search"><Icon name="close" /></button></div>
+        <form className="search-field" onSubmit={(event) => { event.preventDefault(); router.push(`/shop?q=${encodeURIComponent(searchQuery)}`); }}><Icon name="search" size={28} /><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} autoFocus={searchOpen} placeholder="Search dresses, sets, colours…" aria-label="Search products" /><button type="submit" aria-label="Search">→</button></form>
+        <p>Popular now</p><div className="search-chips"><button onClick={() => setSearchQuery("Aqua")}>Aqua sets</button><button onClick={() => setSearchQuery("3-piece")}>3-piece suits</button><button onClick={() => router.push("/shop")}>New arrivals</button></div>
+      </div>
+    </main>
+  );
+}
