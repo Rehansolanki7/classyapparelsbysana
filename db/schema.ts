@@ -99,6 +99,20 @@ export const emailOtps = mysqlTable("email_otps", {
   createdAt,
 }, (table) => [index("email_otps_lookup_idx").on(table.email, table.purpose, table.expiresAt)]);
 
+/** Store-managed product groupings shown to customers in the shop filter. */
+export const categories = mysqlTable("categories", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: varchar("name", { length: 80 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull(),
+  sortOrder: int("sort_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt,
+  updatedAt,
+}, (table) => [
+  uniqueIndex("categories_slug_unique").on(table.slug),
+  index("categories_active_sort_idx").on(table.active, table.sortOrder),
+]);
+
 export const products = mysqlTable("products", {
   id: varchar("id", { length: 36 }).primaryKey(),
   slug: varchar("slug", { length: 150 }).notNull(),
@@ -107,6 +121,8 @@ export const products = mysqlTable("products", {
   description: text("description").notNull().default(""),
   pricePaise: int("price_paise").notNull().default(0),
   compareAtPaise: int("compare_at_paise"),
+  categoryId: varchar("category_id", { length: 36 }).references(() => categories.id),
+  // Retained while older deployments and imports transition to managed categories.
   category: varchar("category", { length: 80 }).notNull().default("3-piece sets"),
   status: mysqlEnum("status", ["draft", "active", "archived"]).notNull().default("draft"),
   color: varchar("color", { length: 80 }).notNull().default(""),
@@ -122,7 +138,7 @@ export const products = mysqlTable("products", {
   featured: boolean("featured").notNull().default(false),
   createdAt,
   updatedAt,
-}, (table) => [uniqueIndex("products_slug_unique").on(table.slug), uniqueIndex("products_instagram_media_unique").on(table.instagramMediaId), index("products_status_featured_idx").on(table.status, table.featured)]);
+}, (table) => [uniqueIndex("products_slug_unique").on(table.slug), uniqueIndex("products_instagram_media_unique").on(table.instagramMediaId), index("products_status_featured_idx").on(table.status, table.featured), index("products_category_status_idx").on(table.categoryId, table.status)]);
 
 export const productImages = mysqlTable("product_images", {
   id: int("id").autoincrement().primaryKey(),

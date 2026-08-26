@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../db";
-import { productImages, products, productVariants } from "../db/schema";
+import { categories, productImages, products, productVariants } from "../db/schema";
+import { categorySlug, type ManagedCategory } from "./categories";
 import { canonicalProductSlug } from "./product-slug";
 
 export type CatalogVariant = {
@@ -20,6 +21,9 @@ export type CatalogProduct = {
   compareAt: number;
   badge: string;
   description: string;
+  categoryId: string | null;
+  category: string;
+  categorySlug: string;
   includes: string;
   color: string;
   fabric: string;
@@ -42,6 +46,9 @@ export const FALLBACK_PRODUCT: CatalogProduct = {
   badge: "New drop",
   description:
     "A soft aqua three-piece set with whimsical florals, appliqué details and a statement printed dupatta. Easy to dress up, effortless to live in.",
+  categoryId: "category-3-piece-sets",
+  category: "3-piece sets",
+  categorySlug: "3-piece-sets",
   includes: "Kurta, trousers and printed dupatta",
   color: "Aqua",
   fabric: "",
@@ -78,7 +85,9 @@ function mapProduct(
   row: typeof products.$inferSelect,
   images: Array<typeof productImages.$inferSelect>,
   variants: Array<typeof productVariants.$inferSelect>,
+  managedCategory?: ManagedCategory,
 ): CatalogProduct {
+  const category = managedCategory?.name || row.category || "Uncategorised";
   return {
     id: row.id,
     slug: canonicalProductSlug(row.name, row.slug, row.id),
@@ -88,6 +97,9 @@ function mapProduct(
     compareAt: (row.compareAtPaise ?? row.pricePaise) / 100,
     badge: row.status === "active" ? "New drop" : row.status,
     description: row.description,
+    categoryId: managedCategory?.id ?? row.categoryId,
+    category,
+    categorySlug: managedCategory?.slug ?? categorySlug(category),
     includes: row.includes,
     color: row.color,
     fabric: row.fabric,
@@ -119,11 +131,12 @@ export async function getFeaturedProduct(): Promise<CatalogProduct> {
       if (fallbackAllowed()) return FALLBACK_PRODUCT;
       throw new Error("No active featured product is configured");
     }
-    const [images, variants] = await Promise.all([
+    const [images, variants, categoryRows] = await Promise.all([
       db.select().from(productImages).where(eq(productImages.productId, row.id)).orderBy(asc(productImages.position)),
       db.select().from(productVariants).where(eq(productVariants.productId, row.id)).orderBy(asc(productVariants.id)),
+      row.categoryId ? db.select().from(categories).where(eq(categories.id, row.categoryId)).limit(1) : Promise.resolve([]),
     ]);
-    return mapProduct(row, images, variants);
+    return mapProduct(row, images, variants, categoryRows[0]);
   } catch (error) {
     if (fallbackAllowed()) return FALLBACK_PRODUCT;
     throw error;
@@ -133,14 +146,18 @@ export async function getFeaturedProduct(): Promise<CatalogProduct> {
 export async function getAllProducts(): Promise<CatalogProduct[]> {
   try {
     const db = getDb();
-    const rows = await db.select().from(products).orderBy(asc(products.createdAt));
+    const [rows, categoryRows] = await Promise.all([
+      db.select().from(products).orderBy(asc(products.createdAt)),
+      db.select().from(categories),
+    ]);
+    const categoriesById = new Map(categoryRows.map((category) => [category.id, category]));
     const result: CatalogProduct[] = [];
     for (const row of rows) {
       const [images, variants] = await Promise.all([
         db.select().from(productImages).where(eq(productImages.productId, row.id)).orderBy(asc(productImages.position)),
         db.select().from(productVariants).where(eq(productVariants.productId, row.id)).orderBy(asc(productVariants.id)),
       ]);
-      result.push(mapProduct(row, images, variants));
+      result.push(mapProduct(row, images, variants, row.categoryId ? categoriesById.get(row.categoryId) : undefined));
     }
     return result.length ? result : (fallbackAllowed() ? [FALLBACK_PRODUCT] : []);
   } catch (error) {

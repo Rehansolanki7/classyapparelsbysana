@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { constantTimeEqual, hmacSha256Hex, rejectCrossSite } from "../lib/security";
 
@@ -15,4 +16,10 @@ test("cross-site writes are rejected while same-origin writes are allowed", () =
   const attacker = new Request("https://classyapparelsbysana.com/api/test", { headers: { origin: "https://attacker.example" } });
   assert.equal(rejectCrossSite(sameOrigin), null);
   assert.equal(rejectCrossSite(attacker)?.status, 403);
+});
+
+test("the customer storefront never exposes an admin navigation link", async () => {
+  const root = new URL("../", import.meta.url);
+  const storefront = await readFile(new URL("app/storefront.tsx", root), "utf8");
+  assert.doesNotMatch(storefront, /href=["']\/admin(?:["'?]|\/)/);
 });

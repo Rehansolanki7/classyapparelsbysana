@@ -274,7 +274,7 @@ export default function Storefront({ product, products, settings }: { product: C
         <div className="footer-brand"><span className="wordmark-main">Classy Apparels</span><p>Thoughtful everyday elegance, selected by Sana in small drops.</p></div>
         <div><h3>Shop</h3><a href="/shop">Shop</a><button onClick={() => setSizeOpen(true)} aria-expanded={sizeOpen} aria-controls="size-guide">Size guide</button></div>
         <div><h3>Help</h3><a href="/account">My orders</a><a href="/track-order">Track order</a><a href="/policies#shipping">Shipping</a><a href="/policies#exchange">Exchange policy</a><a href={whatsappHref("Hi Sana, I need help with an order or shopping question.")} target="_blank" rel="noreferrer">WhatsApp us</a></div>
-        <div><h3>Follow</h3><a href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer">Instagram</a><a href="/admin">Admin</a></div>
+        <div><h3>Follow</h3><a href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer">Instagram</a></div>
         <div className="footer-bottom"><span>© 2026 Classy Apparels by Sana</span><span>Made with care in India</span></div>
       </footer>
 

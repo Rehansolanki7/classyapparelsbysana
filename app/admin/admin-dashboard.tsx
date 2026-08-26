@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { AppUser } from "../../lib/auth";
 import type { CatalogProduct } from "../../lib/catalog";
+import type { ManagedCategory } from "../../lib/categories";
 import { countryName } from "../../lib/locations";
 import type { StorefrontSettings } from "../../lib/storefront-settings";
 import { SHIPPING_ZONES, type PincodeRule, type ShippingRateCard, type ShippingZone } from "../../lib/shipping-types";
@@ -90,7 +91,7 @@ type ActivityCategory = "all" | "payments" | "orders" | "shipping" | "storefront
 type SimpleShippingRate = { customerPrice: number; deliveryDaysMin: number; deliveryDaysMax: number };
 type SimpleShippingRates = Record<ShippingZone, SimpleShippingRate>;
 
-type Tab = "overview" | "products" | "instagram" | "orders" | "activity" | "coupons" | "shipping" | "settings";
+type Tab = "overview" | "products" | "categories" | "instagram" | "orders" | "activity" | "coupons" | "shipping" | "settings";
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2400;
@@ -247,6 +248,7 @@ function couponOffer(coupon: CouponItem) {
 export default function AdminDashboard({
   user,
   initialProducts,
+  initialCategories,
   initialImports,
   initialOrders,
   initialCoupons,
@@ -258,6 +260,7 @@ export default function AdminDashboard({
 }: {
   user: AppUser;
   initialProducts: CatalogProduct[];
+  initialCategories: ManagedCategory[];
   initialImports: ImportItem[];
   initialOrders: OrderItem[];
   initialCoupons: CouponItem[];
@@ -269,6 +272,9 @@ export default function AdminDashboard({
 }) {
   const [tab, setTab] = useState<Tab>("overview");
   const [products, setProducts] = useState(initialProducts);
+  const [categories, setCategories] = useState(initialCategories);
+  const [categoryEdits, setCategoryEdits] = useState<Record<string, string>>({});
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [imports, setImports] = useState(initialImports);
   const [orders, setOrders] = useState(initialOrders);
   const [coupons, setCoupons] = useState(initialCoupons);
@@ -299,7 +305,8 @@ export default function AdminDashboard({
   const couponDirty = selectedCoupon
     ? JSON.stringify(couponDraft) !== JSON.stringify(couponToDraft(selectedCoupon))
     : Boolean(couponDraft.code || couponDraft.value !== 10 || couponDraft.minOrder || couponDraft.maxDiscount !== "" || couponDraft.startsAt || couponDraft.endsAt || couponDraft.usageLimit !== "" || !couponDraft.active);
-  const hasUnsavedChanges = productDirty || couponDirty;
+  const categoryDirty = Boolean(newCategoryName.trim() || Object.keys(categoryEdits).length);
+  const hasUnsavedChanges = productDirty || couponDirty || categoryDirty;
   const selectedCouponStatus = selectedCoupon ? couponAvailability(selectedCoupon) : null;
   const activeProducts = products.filter((product) => product.status === "active");
   const selectedHomepageProduct = activeProducts.find((product) => product.id === storefrontSettings.featuredProductId) ?? null;
@@ -461,6 +468,91 @@ export default function AdminDashboard({
     setSelectedCouponId("");
     setCouponDraft(emptyCouponDraft());
     setNotice("");
+  }
+
+  function updateCategoryName(id: string, name: string) {
+    setCategoryEdits((current) => ({ ...current, [id]: name }));
+  }
+
+  async function createCategory(event: React.FormEvent) {
+    event.preventDefault();
+    const name = newCategoryName.trim();
+    if (!name) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/categories", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
+      const result = await response.json().catch(() => ({})) as { category?: ManagedCategory; error?: string };
+      if (!response.ok || !result.category) setNotice(result.error || "Could not create that category.");
+      else {
+        setCategories((current) => [...current, result.category!]);
+        setNewCategoryName("");
+        setNotice(`${result.category.name} is ready to use on products.`);
+      }
+    } catch {
+      setNotice("Could not create that category. Check your connection and try again.");
+    }
+    setBusy(false);
+  }
+
+  async function saveCategory(category: ManagedCategory) {
+    const name = (categoryEdits[category.id] ?? category.name).trim();
+    if (!name || name === category.name) {
+      setCategoryEdits((current) => { const next = { ...current }; delete next[category.id]; return next; });
+      return;
+    }
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/categories", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: category.id, name }) });
+      const result = await response.json().catch(() => ({})) as { category?: ManagedCategory; error?: string };
+      if (!response.ok || !result.category) setNotice(result.error || "Could not save that category.");
+      else {
+        setCategories((current) => current.map((item) => item.id === category.id ? result.category! : item));
+        setCategoryEdits((current) => { const next = { ...current }; delete next[category.id]; return next; });
+        setProducts((current) => current.map((product) => product.categoryId === category.id ? { ...product, category: result.category!.name, categorySlug: result.category!.slug } : product));
+        setDraft((current) => current?.categoryId === category.id ? { ...current, category: result.category!.name, categorySlug: result.category!.slug } : current);
+        setNotice("Category saved.");
+      }
+    } catch {
+      setNotice("Could not save that category. Check your connection and try again.");
+    }
+    setBusy(false);
+  }
+
+  async function setCategoryActive(category: ManagedCategory, active: boolean) {
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/categories", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: category.id, active }) });
+      const result = await response.json().catch(() => ({})) as { category?: ManagedCategory; error?: string };
+      if (!response.ok || !result.category) setNotice(result.error || "Could not update that category.");
+      else {
+        setCategories((current) => current.map((item) => item.id === category.id ? result.category! : item));
+        setNotice(active ? "Category restored." : "Category archived. It is hidden from the shop.");
+      }
+    } catch {
+      setNotice("Could not update that category. Check your connection and try again.");
+    }
+    setBusy(false);
+  }
+
+  async function moveCategory(index: number, direction: -1 | 1) {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= categories.length) return;
+    const reordered = [...categories];
+    [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/categories", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "reorder", orderedIds: reordered.map((category) => category.id) }) });
+      const result = await response.json().catch(() => ({})) as { categories?: ManagedCategory[]; error?: string };
+      if (!response.ok || !result.categories) setNotice(result.error || "Could not change the category order.");
+      else { setCategories(result.categories); setNotice("Category order saved."); }
+    } catch {
+      setNotice("Could not change the category order. Check your connection and try again.");
+    }
+    setBusy(false);
   }
 
   async function saveCoupon() {
@@ -718,6 +810,7 @@ export default function AdminDashboard({
   const nav: Array<{ id: Tab; label: string; count?: number }> = [
     { id: "overview", label: "Overview" },
     { id: "products", label: "Products", count: products.length },
+    { id: "categories", label: "Categories", count: categories.filter((category) => category.active).length },
     { id: "instagram", label: "Instagram queue", count: pendingImports.length },
     { id: "orders", label: "Orders", count: orders.length },
     { id: "activity", label: "Activity", count: initialEvents.length },
@@ -788,10 +881,30 @@ export default function AdminDashboard({
               <div className="editor-photo-grid">{draft.images.map((image, index) => <article key={`${image}-${index}`} className={index === 0 ? "primary" : ""}><img src={image} alt={`${draft.name}, admin view ${index + 1}`} /><span>{index === 0 ? "Cover" : `Photo ${index + 1}`}</span><div>{index > 0 && <button type="button" onClick={() => makePrimary(index)}>Set cover</button>}<button type="button" onClick={() => moveImage(index, -1)} disabled={index === 0} aria-label="Move photo earlier">←</button><button type="button" onClick={() => moveImage(index, 1)} disabled={index === draft.images.length - 1} aria-label="Move photo later">→</button><button type="button" className="remove" onClick={() => removeImage(index)}>Remove</button></div></article>)}</div>
               {!draft.images.length && <div className="editor-photo-empty">No photos yet. Add clear front, back and detail views before publishing.</div>}
             </div>
-            <div className="editor-fields"><label className="wide"><span>Product name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label><span>Selling price (₹)</span><input type="number" min="0" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label><label><span>Compare-at price (₹)</span><input type="number" min="0" value={draft.compareAt} onChange={(event) => setDraft({ ...draft, compareAt: Number(event.target.value) })} /></label><label><span>Packed shipping weight (g)</span><input type="number" min="1" max="50000" value={draft.packedWeightGrams || ""} onChange={(event) => setDraft({ ...draft, packedWeightGrams: Number(event.target.value) })} /><small>Garment plus packaging. Required to publish.</small></label><label><span>Colour</span><input value={draft.color} onChange={(event) => setDraft({ ...draft, color: event.target.value })} /></label><label><span>Fabric</span><input value={draft.fabric} onChange={(event) => setDraft({ ...draft, fabric: event.target.value })} /></label><label className="wide"><span>What is included</span><input value={draft.includes} onChange={(event) => setDraft({ ...draft, includes: event.target.value })} /></label><label className="wide"><span>Description</span><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={5} /></label></div>
+            <div className="editor-fields"><label className="wide"><span>Product name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label><span>Selling price (₹)</span><input type="number" min="0" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label><label><span>Compare-at price (₹)</span><input type="number" min="0" value={draft.compareAt} onChange={(event) => setDraft({ ...draft, compareAt: Number(event.target.value) })} /></label><label><span>Product category</span><select value={draft.categoryId ?? ""} onChange={(event) => { const category = categories.find((item) => item.id === event.target.value); setDraft({ ...draft, categoryId: category?.id ?? null, category: category?.name ?? "", categorySlug: category?.slug ?? "" }); }}><option value="">Choose before publishing</option>{categories.filter((category) => category.active || category.id === draft.categoryId).map((category) => <option value={category.id} key={category.id}>{category.name}{category.active ? "" : " · archived"}</option>)}</select><small>Only active categories can be published.</small></label><label><span>Packed shipping weight (g)</span><input type="number" min="1" max="50000" value={draft.packedWeightGrams || ""} onChange={(event) => setDraft({ ...draft, packedWeightGrams: Number(event.target.value) })} /><small>Garment plus packaging. Required to publish.</small></label><label><span>Colour</span><input value={draft.color} onChange={(event) => setDraft({ ...draft, color: event.target.value })} /></label><label><span>Fabric</span><input value={draft.fabric} onChange={(event) => setDraft({ ...draft, fabric: event.target.value })} /></label><label className="wide"><span>What is included</span><input value={draft.includes} onChange={(event) => setDraft({ ...draft, includes: event.target.value })} /></label><label className="wide"><span>Description</span><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={5} /></label></div>
             <div className="inventory-editor"><div><h3>Size inventory</h3><p>Stock reaches the storefront immediately after saving.</p></div><div className="variant-grid">{draft.variants.map((variant, index) => <label key={variant.id}><span>{variant.size}</span><input type="number" min="0" max="9999" value={variant.stock} onChange={(event) => { const variants = [...draft.variants]; variants[index] = { ...variant, stock: Number(event.target.value) }; setDraft({ ...draft, variants }); }} /></label>)}</div></div>
             <div className="editor-publish"><label><span>Visibility</span><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as CatalogProduct["status"] })}><option value="draft">Draft — hidden from customers</option><option value="active">Active — visible and purchasable</option><option value="archived">Archived</option></select></label><label className="feature-toggle"><input type="checkbox" checked={draft.featured} onChange={(event) => setDraft({ ...draft, featured: event.target.checked })} /><span>Feature on home page</span></label><button className="button button-dark" onClick={saveProduct} disabled={busy}>{busy ? "Saving…" : "Save product"}</button></div>
           </div>}
+        </div>}
+
+        {tab === "categories" && <div className="categories-admin">
+          <section className="category-admin-intro">
+            <div><p className="kicker">Shop discovery</p><h2>Arrange the shop your way.</h2><p>Create the few collections customers should see first. A live product needs one active category before it can be published.</p></div>
+            <form className="category-create-form" onSubmit={createCategory}><label><span>New category</span><input value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} maxLength={80} placeholder="e.g. Pakistani suits" /></label><button className="button button-dark" disabled={busy || !newCategoryName.trim()}>{busy ? "Saving…" : "Add category"}</button></form>
+          </section>
+          <section className="category-admin-list" aria-label="Product categories">
+            {!categories.length ? <div className="admin-empty"><span>◌</span><h2>Your first collection starts here.</h2><p>Add a category, then choose it while editing a product.</p></div> : categories.map((category, index) => {
+              const productCount = products.filter((product) => product.categoryId === category.id).length;
+              const liveProductCount = products.filter((product) => product.categoryId === category.id && product.status === "active").length;
+              const editedName = categoryEdits[category.id] ?? category.name;
+              return <article key={category.id} className={category.active ? "" : "archived"}>
+                <div className="category-order"><button type="button" onClick={() => moveCategory(index, -1)} disabled={busy || index === 0} aria-label={`Move ${category.name} earlier`}>↑</button><button type="button" onClick={() => moveCategory(index, 1)} disabled={busy || index === categories.length - 1} aria-label={`Move ${category.name} later`}>↓</button></div>
+                <label><span>Category name</span><input value={editedName} onChange={(event) => updateCategoryName(category.id, event.target.value)} maxLength={80} /></label>
+                <div className="category-meta"><strong>{productCount} product{productCount === 1 ? "" : "s"}</strong><small>{liveProductCount} live · /shop?category={category.slug}</small></div>
+                <div className="category-actions"><button type="button" className="button button-outline" onClick={() => saveCategory(category)} disabled={busy || editedName.trim() === category.name}>Save</button><button type="button" className="text-link" onClick={() => setCategoryActive(category, !category.active)} disabled={busy}>{category.active ? "Archive" : "Restore"}</button></div>
+              </article>;
+            })}
+          </section>
         </div>}
 
         {tab === "instagram" && <div className="instagram-admin"><div className="integration-banner"><div className="instagram-icon">◎</div><div><p className="kicker">Instagram import</p><h2>Turn posts into polished product drafts.</h2><p>Sync the latest posts, review each one, then add price, sizes and inventory before anything appears publicly.</p></div><button className="button button-dark" onClick={syncInstagram} disabled={busy}>{busy ? "Syncing…" : "Sync latest posts"}</button></div>{pendingImports.length === 0 ? <div className="admin-empty"><span>◎</span><h2>Your review queue is clear</h2><p>Connect the Instagram token in Integrations, then sync. New posts stay private until you approve them.</p><button className="text-link" onClick={() => changeTab("settings")}>Check integration setup →</button></div> : <div className="import-grid">{pendingImports.map((item) => <article key={item.id}><div className="import-image"><img src={item.imageUrl} alt="Instagram import preview" loading="lazy" decoding="async" /><span>Pending review</span></div><div className="import-copy"><small>{shortDate(item.publishedAt)}</small><p>{item.caption || "No caption"}</p><div><button className="button button-dark" onClick={() => reviewImport(item.id, "create_draft")} disabled={busy}>Create product draft</button><button className="text-link" onClick={() => reviewImport(item.id, "ignore")} disabled={busy}>Ignore</button></div></div></article>)}</div>}</div>}

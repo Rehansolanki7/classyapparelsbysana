@@ -5,6 +5,7 @@ import { getDb } from "../../db";
 import { coupons, instagramImports, orderItems, orders, systemEvents } from "../../db/schema";
 import { currentUser, isAdmin } from "../../lib/auth";
 import { getAllProducts } from "../../lib/catalog";
+import { getManagedCategories } from "../../lib/categories";
 import { orderNotificationsConfigured } from "../../lib/integrations";
 import { uploadUrl } from "../../lib/uploads";
 import { getStorefrontSettings } from "../../lib/storefront-settings";
@@ -21,7 +22,7 @@ type AdminOrder = typeof orders.$inferSelect & {
 export default async function AdminPage() {
   const user = await currentUser();
   if (!user || !isAdmin(user)) redirect("/admin/login?return_to=/admin");
-  const [products, storefrontSettings] = await Promise.all([getAllProducts(), getStorefrontSettings()]);
+  const [products, storefrontSettings, initialCategories] = await Promise.all([getAllProducts(), getStorefrontSettings(), getManagedCategories(true)]);
   let shippingConfiguration: Awaited<ReturnType<typeof getShippingConfiguration>> = { cards: [], pincodeRules: [], handlingPaise: 5000 };
   try { shippingConfiguration = await getShippingConfiguration(); } catch { /* Admin shows a clear migration/setup state. */ }
   let imports: Array<typeof instagramImports.$inferSelect & { imageUrl: string }> = [];
@@ -46,5 +47,5 @@ export default async function AdminPage() {
     initialCoupons = couponRows;
     recentEvents = eventRows;
   } catch { /* The setup card in the dashboard is still useful before MySQL is connected. */ }
-  return <AdminDashboard user={user} initialProducts={products} initialImports={imports} initialOrders={recentOrders} initialCoupons={initialCoupons} signOutPath="/logout" notificationConfigured={orderNotificationsConfigured()} initialStorefrontSettings={storefrontSettings} initialEvents={recentEvents} initialShippingConfiguration={shippingConfiguration} />;
+  return <AdminDashboard user={user} initialProducts={products} initialCategories={initialCategories} initialImports={imports} initialOrders={recentOrders} initialCoupons={initialCoupons} signOutPath="/logout" notificationConfigured={orderNotificationsConfigured()} initialStorefrontSettings={storefrontSettings} initialEvents={recentEvents} initialShippingConfiguration={shippingConfiguration} />;
 }
