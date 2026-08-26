@@ -254,7 +254,7 @@ export default function CheckoutClient({
         razorpayOrderId?: string;
         amount?: number;
         currency?: string;
-        productName?: string;
+        description?: string;
         subtotalPaise?: number;
         shippingPaise?: number;
         cartWeightGrams?: number;
@@ -277,7 +277,7 @@ export default function CheckoutClient({
         amount: order.amount,
         currency: order.currency,
         name: "Classy Apparels",
-        description: order.productName || `${lines.length} item${lines.length === 1 ? "" : "s"}`,
+        description: order.description || `${lines.length} item${lines.length === 1 ? "" : "s"}`,
         order_id: order.razorpayOrderId,
         prefill: { name: form.name, email: form.email, contact: form.phone.startsWith("+") || !domestic ? form.phone : `+91${form.phone}` },
         theme: { color: "#5d9798" },

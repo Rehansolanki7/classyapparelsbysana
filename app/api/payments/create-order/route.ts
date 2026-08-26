@@ -178,6 +178,10 @@ async function createOrder(request: Request) {
   // Fourteen numeric digits remain easy to quote to customer support while
   // making a collision astronomically unlikely before the DB uniqueness check.
   const orderNumber = `CAS${Date.now().toString().slice(-8)}${crypto.getRandomValues(new Uint32Array(1))[0].toString().padStart(10, "0").slice(-6)}`;
+  const itemSummary = selected.map((item) => `${item.quantity} x ${item.productName}`).join(", ").slice(0, 240);
+  // `description` belongs to the Checkout options, while `receipt` and notes
+  // are retained on the Razorpay Order visible in the Dashboard.
+  const checkoutDescription = `Order ${orderNumber} — ${itemSummary}`.slice(0, 255);
   const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
 
   try {
@@ -240,7 +244,12 @@ async function createOrder(request: Request) {
         authorization: `Basic ${btoa(`${keys.RAZORPAY_KEY_ID}:${keys.RAZORPAY_KEY_SECRET}`)}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ amount: totalPaise, currency: "INR", receipt: orderNumber, notes: { local_order_id: localOrderId, item_count: selected.length } }),
+      body: JSON.stringify({
+        amount: totalPaise,
+        currency: "INR",
+        receipt: orderNumber,
+        notes: { local_order_id: localOrderId, order_number: orderNumber, item_count: String(selected.length), items: itemSummary },
+      }),
       signal: AbortSignal.timeout(10_000),
     });
     if (razorpayResponse.ok) razorpayOrder = await razorpayResponse.json() as { id?: string; amount?: number; currency?: string };
@@ -271,7 +280,7 @@ async function createOrder(request: Request) {
     billedWeightGrams: serviceability.billedWeightGrams,
     discountPaise: coupon.discountPaise,
     currency: "INR",
-    productName: selected.length === 1 ? selected[0].productName : `${selected.length} items from Classy Apparels`,
+    description: checkoutDescription,
   });
 }
 

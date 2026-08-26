@@ -20,6 +20,18 @@ test("payment webhooks bind captured amount and currency before inventory finali
   assert.match(source, /attemptAutomaticRefund/);
 });
 
+test("Razorpay receives an order number and item summary without exposing customer details", async () => {
+  const [createOrder, checkout] = await Promise.all([
+    readFile(new URL("../app/api/payments/create-order/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/checkout/checkout-client.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(createOrder, /const checkoutDescription = `Order \$\{orderNumber\}/);
+  assert.match(createOrder, /order_number: orderNumber/);
+  assert.match(createOrder, /items: itemSummary/);
+  assert.match(checkout, /description: order\.description/);
+  assert.doesNotMatch(createOrder, /notes: \{[^}]*customer/i);
+});
+
 test("unpaid checkouts are not customer orders and are scrubbed before short retention", async () => {
   const [account, orders, retention] = await Promise.all([
     readFile(new URL("../app/account/page.tsx", import.meta.url), "utf8"),
