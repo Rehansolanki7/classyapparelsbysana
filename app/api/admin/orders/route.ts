@@ -140,6 +140,7 @@ export async function POST(request: Request) {
     const captured = payments.items?.find((payment) => payment.id && payment.order_id === order.razorpayOrderId && payment.amount === order.totalPaise && payment.currency === "INR" && payment.status === "captured");
     if (!captured?.id) return Response.json({ ok: true, status: order.status, paymentStatus: order.paymentStatus, message: "No captured payment was found." });
     const result = await finalizeCapturedOrder(order.id, captured.id);
+    if (result === "ignored" || result === "missing") return Response.json({ error: "This captured payment cannot enter fulfilment. Check the refund state before taking any action." }, { status: 409 });
     if (result === "captured") await sendPaidOrderNotifications(order.id);
     return Response.json({ ok: true, status: result === "refund_required" ? "refund_pending" : "paid", paymentStatus: "captured", result });
   }
@@ -196,6 +197,8 @@ export async function POST(request: Request) {
       .where(eq(orders.id, order.id));
 
   });
-  if (payload.restock) await restoreOrderStockOnce(order.id);
+  // A pending Razorpay refund is not final. The signed refund.processed
+  // webhook restores stock once the full refund is confirmed.
+  if (payload.restock && complete) await restoreOrderStockOnce(order.id);
   return Response.json({ ok: true, status: complete ? "refunded" : "refund_pending" });
 }

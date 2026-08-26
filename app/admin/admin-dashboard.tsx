@@ -27,9 +27,12 @@ type OrderItem = {
   customerName: string;
   email: string;
   phone: string;
+  addressLine1: string;
+  addressLine2: string;
   city: string;
   state: string;
   countryCode: string;
+  postalCode: string;
   totalPaise: number;
   createdAt: string;
   adminNotificationStatus: string;
@@ -37,7 +40,10 @@ type OrderItem = {
   trackingNumber: string;
   trackingUrl: string;
   legalHold: boolean;
+  items: Array<{ productName: string; size: string; quantity: number }>;
 };
+
+type OrderFilter = "to_pack" | "processing" | "shipped" | "all_paid" | "payment_review";
 
 type CouponItem = {
   id: string;
@@ -149,14 +155,18 @@ function shortDate(value: string | null) {
   return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(new Date(value));
 }
 
-function orderStatusOptions(status: string) {
-  const transitions: Record<string, string[]> = {
-    paid: ["paid", "processing"],
-    processing: ["processing", "shipped"],
-    shipped: ["shipped", "delivered"],
-    delivered: ["delivered"],
-  };
-  return transitions[status] ?? [];
+function isFulfillableOrder(order: Pick<OrderItem, "paymentStatus" | "status">) {
+  return order.paymentStatus === "captured" && ["paid", "processing", "shipped", "delivered"].includes(order.status);
+}
+
+function deliveryAddress(order: OrderItem) {
+  return [order.addressLine1, order.addressLine2, order.city, order.state, order.postalCode, countryName(order.countryCode)].filter(Boolean).join(", ");
+}
+
+function customerWhatsappUrl(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return "";
+  return `https://wa.me/${phone.startsWith("+") || digits.length !== 10 ? digits : `91${digits}`}`;
 }
 
 function dateForInput(value: string | null) {
@@ -241,6 +251,8 @@ export default function AdminDashboard({
   const [couponDraft, setCouponDraft] = useState<CouponDraft>(() => initialCoupons[0] ? couponToDraft(initialCoupons[0]) : emptyCouponDraft());
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>("to_pack");
+  const [orderSearch, setOrderSearch] = useState("");
   const [storefrontSettings, setStorefrontSettings] = useState(initialStorefrontSettings);
   const [shippingCards, setShippingCards] = useState(initialShippingConfiguration.cards);
   const [pinRules, setPinRules] = useState(initialShippingConfiguration.pincodeRules);
@@ -249,7 +261,7 @@ export default function AdminDashboard({
   const pendingImports = imports.filter((item) => item.status === "pending");
   const totalStock = products.reduce((sum, product) => sum + product.variants.reduce((variantSum, variant) => variantSum + variant.stock, 0), 0);
   const productsMissingShippingWeight = products.filter((product) => product.status === "active" && product.packedWeightGrams <= 0).length;
-  const paidOrders = orders.filter((order) => order.paymentStatus === "captured");
+  const paidOrders = orders.filter(isFulfillableOrder);
   const revenue = paidOrders.reduce((sum, order) => sum + order.totalPaise / 100, 0);
   const selected = useMemo(() => products.find((product) => product.id === selectedId) ?? null, [products, selectedId]);
   const selectedCoupon = useMemo(() => coupons.find((coupon) => coupon.id === selectedCouponId) ?? null, [coupons, selectedCouponId]);
@@ -257,6 +269,23 @@ export default function AdminDashboard({
   const activeProducts = products.filter((product) => product.status === "active");
   const selectedHomepageProduct = activeProducts.find((product) => product.id === storefrontSettings.featuredProductId) ?? null;
   const homepageImages = selectedHomepageProduct?.images ?? [];
+  const orderFilterCounts: Record<OrderFilter, number> = {
+    to_pack: orders.filter((order) => isFulfillableOrder(order) && order.status === "paid").length,
+    processing: orders.filter((order) => isFulfillableOrder(order) && order.status === "processing").length,
+    shipped: orders.filter((order) => isFulfillableOrder(order) && order.status === "shipped").length,
+    all_paid: paidOrders.length,
+    payment_review: orders.filter((order) => !isFulfillableOrder(order)).length,
+  };
+  const normalizedOrderSearch = orderSearch.trim().toLowerCase();
+  const visibleOrders = orders.filter((order) => {
+    const matchesFilter = orderFilter === "all_paid" ? isFulfillableOrder(order)
+      : orderFilter === "payment_review" ? !isFulfillableOrder(order)
+        : orderFilter === "to_pack" ? isFulfillableOrder(order) && order.status === "paid"
+          : isFulfillableOrder(order) && order.status === orderFilter;
+    if (!matchesFilter) return false;
+    if (!normalizedOrderSearch) return true;
+    return [order.orderNumber, order.customerName, order.phone, order.email, order.city, order.state, order.postalCode, ...order.items.map((item) => item.productName)].join(" ").toLowerCase().includes(normalizedOrderSearch);
+  });
 
   function selectProduct(id: string) {
     const product = products.find((item) => item.id === id) ?? null;
@@ -460,26 +489,42 @@ export default function AdminDashboard({
     setBusy(false);
   }
 
-  async function changeOrder(id: string, status: string) {
-    const order = orders.find((item) => item.id === id);
-    if (!order) return;
-    const response = await fetch("/api/admin/orders", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...order, status }) });
-    const result = (await response.json()) as { error?: string };
-    if (response.ok) setOrders((current) => current.map((order) => order.id === id ? { ...order, status } : order));
-    else setNotice(result.error || "Could not update the order status");
-  }
-
   function updateOrderDraft(id: string, patch: Partial<OrderItem>) {
     setOrders((current) => current.map((order) => order.id === id ? { ...order, ...patch } : order));
   }
 
-  async function saveTracking(order: OrderItem) {
+  async function saveOrder(order: OrderItem, status = order.status, successMessage = "Order updated.") {
     setBusy(true);
     setNotice("");
-    const response = await fetch("/api/admin/orders", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(order) });
+    const response = await fetch("/api/admin/orders", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...order, status }) });
     const result = (await response.json()) as { error?: string };
-    setNotice(response.ok ? "Customer tracking details saved." : result.error || "Could not save tracking details");
+    if (response.ok) {
+      setOrders((current) => current.map((item) => item.id === order.id ? { ...item, ...order, status } : item));
+      setNotice(successMessage);
+    } else setNotice(result.error || "Could not update the order.");
     setBusy(false);
+  }
+
+  async function advanceOrder(order: OrderItem) {
+    const nextStatus = order.status === "paid" ? "processing" : order.status === "processing" ? "shipped" : order.status === "shipped" ? "delivered" : "";
+    if (!nextStatus) return;
+    if (nextStatus === "shipped" && (!order.courierName.trim() || !order.trackingNumber.trim())) {
+      setNotice("Add the courier and AWB/tracking number before marking this order shipped.");
+      return;
+    }
+    const successMessage = nextStatus === "processing" ? "Order moved to packing." : nextStatus === "shipped" ? "Order marked shipped and ready for the customer to track." : "Order marked delivered.";
+    await saveOrder(order, nextStatus, successMessage);
+  }
+
+  async function copyDeliveryDetails(order: OrderItem) {
+    const items = order.items.map((item) => `${item.quantity} x ${item.productName} (${item.size})`).join("\n");
+    const text = `Order ${order.orderNumber}\n${order.customerName}\n${order.phone}\n${order.email}\n\n${deliveryAddress(order)}\n\nItems:\n${items}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setNotice(`Delivery details for ${order.orderNumber} copied.`);
+    } catch {
+      setNotice("Could not copy delivery details. Please select and copy them manually.");
+    }
   }
 
   async function changeLegalHold(order: OrderItem, legalHold: boolean) {
@@ -648,29 +693,39 @@ export default function AdminDashboard({
 
         {tab === "instagram" && <div className="instagram-admin"><div className="integration-banner"><div className="instagram-icon">◎</div><div><p className="kicker">Instagram import</p><h2>Turn posts into polished product drafts.</h2><p>Sync the latest posts, review each one, then add price, sizes and inventory before anything appears publicly.</p></div><button className="button button-dark" onClick={syncInstagram} disabled={busy}>{busy ? "Syncing…" : "Sync latest posts"}</button></div>{pendingImports.length === 0 ? <div className="admin-empty"><span>◎</span><h2>Your review queue is clear</h2><p>Connect the Instagram token in Integrations, then sync. New posts stay private until you approve them.</p><button className="text-link" onClick={() => setTab("settings")}>Check integration setup →</button></div> : <div className="import-grid">{pendingImports.map((item) => <article key={item.id}><div className="import-image"><img src={item.imageUrl} alt="Instagram import preview" /><span>Pending review</span></div><div className="import-copy"><small>{shortDate(item.publishedAt)}</small><p>{item.caption || "No caption"}</p><div><button className="button button-dark" onClick={() => reviewImport(item.id, "create_draft")} disabled={busy}>Create product draft</button><button className="text-link" onClick={() => reviewImport(item.id, "ignore")} disabled={busy}>Ignore</button></div></div></article>)}</div>}</div>}
 
-        {tab === "orders" && <div className="orders-admin">{orders.length === 0 ? <div className="admin-empty"><span>□</span><h2>No orders yet</h2><p>Paid orders will appear here with the customer, amount and fulfilment status.</p></div> : <div className="orders-table">
-          <div className="orders-head"><span>Order</span><span>Customer</span><span>Amount</span><span>Payment</span><span>Alert</span><span>Fulfilment</span></div>
-          {orders.map((order) => <article className="admin-order-card" key={order.id}>
-            <div className="order-row">
-              <div><strong>{order.orderNumber}</strong><small>{shortDate(order.createdAt)}</small></div>
-              <div><strong>{order.customerName}</strong><small>{order.city}, {order.state} · {countryName(order.countryCode)}</small></div>
-              <strong>{rupees(order.totalPaise / 100)}</strong>
-              <span className={`status-pill ${order.paymentStatus}`}>{order.paymentStatus}</span>
-              <div className="order-alert"><span className={`status-pill ${order.adminNotificationStatus}`}>{order.adminNotificationStatus.replace("_", " ")}</span>{order.paymentStatus === "captured" && order.adminNotificationStatus !== "sent" && <button onClick={() => resendOrderAlert(order.id)} disabled={busy}>Retry</button>}</div>
-              {orderStatusOptions(order.status).length ? <select value={order.status} onChange={(event) => changeOrder(order.id, event.target.value)} disabled={order.paymentStatus !== "captured"}>{orderStatusOptions(order.status).map((status) => <option key={status} value={status}>{status[0].toUpperCase() + status.slice(1)}</option>)}</select> : <span className={`status-pill ${order.status}`}>{order.status.replace("_", " ")}</span>}
+        {tab === "orders" && <div className="orders-admin">
+          <section className="orders-workspace-intro">
+            <div><p className="kicker">Fulfilment workspace</p><h2>Prepare paid orders without the clutter.</h2><p>Only payments confirmed as captured can enter packing or shipping. Payment attempts and refunds stay separate in Payment review.</p></div>
+            <label className="orders-search"><span>Find an order</span><input value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="Order number, customer, phone, PIN or item" /></label>
+            <div className="order-filter-tabs" role="tablist" aria-label="Order filters">
+              {([
+                ["to_pack", "To pack"],
+                ["processing", "Packing"],
+                ["shipped", "Shipped"],
+                ["all_paid", "All paid"],
+                ["payment_review", "Payment review"],
+              ] as Array<[OrderFilter, string]>).map(([filter, label]) => <button key={filter} type="button" className={orderFilter === filter ? "active" : ""} onClick={() => setOrderFilter(filter)}><span>{label}</span><b>{orderFilterCounts[filter]}</b></button>)}
             </div>
-            <div className="order-tracking-editor">
-              <label><span>Courier</span><input value={order.courierName} onChange={(event) => updateOrderDraft(order.id, { courierName: event.target.value })} placeholder="Delhivery, Blue Dart…" /></label>
-              <label><span>Tracking number / AWB</span><input value={order.trackingNumber} onChange={(event) => updateOrderDraft(order.id, { trackingNumber: event.target.value })} placeholder="Shipment reference" /></label>
-              <label className="wide"><span>Courier tracking link</span><input type="url" value={order.trackingUrl} onChange={(event) => updateOrderDraft(order.id, { trackingUrl: event.target.value })} placeholder="https://…" /></label>
-              <label className="feature-toggle"><input type="checkbox" checked={order.legalHold} onChange={(event) => changeLegalHold(order, event.target.checked)} disabled={busy} /><span>Legal hold</span></label>
-              <button className="button button-outline" onClick={() => saveTracking(order)} disabled={busy || order.paymentStatus !== "captured"}>Save tracking</button>
-              {order.razorpayOrderId && !["captured", "refunded"].includes(order.paymentStatus) && <button className="text-link" onClick={() => reconcileOrder(order.id)} disabled={busy}>Reconcile Razorpay</button>}
-              {order.paymentStatus === "captured" && <button className="text-link" onClick={() => refundOrder(order.id)} disabled={busy}>{order.status === "refund_pending" ? "Retry refund" : "Refund & restock"}</button>}
-              <a href={`/track-order?order=${encodeURIComponent(order.orderNumber)}`} target="_blank" rel="noreferrer">Preview customer view ↗</a>
-            </div>
-          </article>)}
-        </div>}</div>}
+          </section>
+          {orders.length === 0 ? <div className="admin-empty"><span>□</span><h2>No paid orders yet</h2><p>Captured payments will appear here, ready to prepare for delivery.</p></div> : visibleOrders.length === 0 ? <div className="admin-empty"><span>⌕</span><h2>Nothing matches this view</h2><p>Try another order filter or clear the search.</p></div> : <div className="fulfilment-order-list">
+            {visibleOrders.map((order) => {
+              const fulfilable = isFulfillableOrder(order);
+              const whatsappUrl = customerWhatsappUrl(order.phone);
+              const nextAction = order.status === "paid" ? "Start packing" : order.status === "processing" ? "Mark shipped" : order.status === "shipped" ? "Mark delivered" : "";
+              return <article className={`fulfilment-order-card${fulfilable ? "" : " payment-review"}`} key={order.id}>
+                <header><div><p className="kicker">{shortDate(order.createdAt)}</p><h3>{order.orderNumber}</h3></div><strong>{rupees(order.totalPaise / 100)}</strong><span className={`status-pill ${order.status}`}>{order.status.replace("_", " ")}</span></header>
+                {fulfilable ? <>
+                  <div className="fulfilment-order-grid">
+                    <section className="order-customer-details"><p className="kicker">Delivery to</p><h4>{order.customerName}</h4><a href={`tel:${order.phone}`}>{order.phone}</a><a href={`mailto:${order.email}`}>{order.email}</a><p>{deliveryAddress(order)}</p><div><button type="button" className="button button-outline" onClick={() => copyDeliveryDetails(order)}>Copy delivery details</button>{whatsappUrl && <a className="text-link" href={whatsappUrl} target="_blank" rel="noreferrer">WhatsApp customer ↗</a>}</div></section>
+                    <section className="order-items-summary"><p className="kicker">Pack these items</p>{order.items.length ? order.items.map((item, index) => <div key={`${item.productName}-${item.size}-${index}`}><strong>{item.quantity} × {item.productName}</strong><span>Size {item.size}</span></div>) : <p>Line items are unavailable. Do not dispatch before checking the customer order record.</p>}</section>
+                    <section className="order-fulfilment-actions"><p className="kicker">Fulfilment</p><h4>{order.status === "paid" ? "Ready to pack" : order.status === "processing" ? "Packing in progress" : order.status === "shipped" ? "On its way" : "Delivered"}</h4>{order.status !== "delivered" && <><label><span>Courier</span><input value={order.courierName} onChange={(event) => updateOrderDraft(order.id, { courierName: event.target.value })} placeholder="Delhivery, Blue Dart…" /></label><label><span>Tracking number / AWB</span><input value={order.trackingNumber} onChange={(event) => updateOrderDraft(order.id, { trackingNumber: event.target.value })} placeholder="Shipment reference" /></label><label><span>Tracking link</span><input type="url" value={order.trackingUrl} onChange={(event) => updateOrderDraft(order.id, { trackingUrl: event.target.value })} placeholder="https://…" /></label><div className="order-action-buttons"><button className="button button-outline" onClick={() => saveOrder(order, order.status, "Tracking details saved.")} disabled={busy}>Save tracking</button>{nextAction && <button className="button button-dark" onClick={() => advanceOrder(order)} disabled={busy}>{nextAction}</button>}</div></>}{order.status === "delivered" && <p className="order-complete-note">This order is complete. Tracking details remain in the customer view.</p>}</section>
+                  </div>
+                  <footer className="fulfilment-order-footer"><span>Payment confirmed</span><span className={`status-pill ${order.adminNotificationStatus}`}>Email {order.adminNotificationStatus.replace("_", " ")}</span>{order.adminNotificationStatus !== "sent" && <button type="button" className="text-link" onClick={() => resendOrderAlert(order.id)} disabled={busy}>Retry order email</button>}<button type="button" className="text-link refund-action" onClick={() => refundOrder(order.id)} disabled={busy}>Refund & restock</button><a href={`/track-order?order=${encodeURIComponent(order.orderNumber)}`} target="_blank" rel="noreferrer">Customer view ↗</a><details><summary>More controls</summary><label className="feature-toggle"><input type="checkbox" checked={order.legalHold} onChange={(event) => changeLegalHold(order, event.target.checked)} disabled={busy} /><span>Legal hold</span></label></details></footer>
+                </> : <section className="order-payment-review"><p className="kicker">Not a shipping order</p><h4>{order.status === "refund_pending" ? "Refund in progress" : order.paymentStatus === "refunded" ? "Refunded" : "Payment has not been captured"}</h4><p>{order.status === "refund_pending" ? "Do not pack or dispatch this order. It remains here only until Razorpay confirms the full refund." : order.paymentStatus === "refunded" ? "This payment was refunded and cannot enter fulfilment." : "This payment attempt cannot enter packing or shipping. Canceled attempts have their delivery data cleared automatically."}</p><div>{order.razorpayOrderId && !["captured", "refunded"].includes(order.paymentStatus) && <button type="button" className="button button-outline" onClick={() => reconcileOrder(order.id)} disabled={busy}>Check Razorpay again</button>}{order.paymentStatus === "captured" && <button type="button" className="button button-outline" onClick={() => refundOrder(order.id)} disabled={busy}>Retry full refund</button>}<details><summary>Payment reference</summary><p>Payment: {order.paymentStatus.replace("_", " ")} · Fulfilment: {order.status.replace("_", " ")}</p></details></div></section>}
+              </article>;
+            })}
+          </div>}
+        </div>}
 
         {tab === "coupons" && <div className="coupon-admin-layout">
           <div className="coupon-list">

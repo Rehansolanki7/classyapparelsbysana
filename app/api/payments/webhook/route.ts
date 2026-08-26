@@ -6,6 +6,7 @@ import { finalizeCapturedOrder, markPaymentAttemptFailed, restoreOrderStockOnce 
 import { sendPaidOrderNotifications } from "../../../../lib/order-notifications";
 import { constantTimeEqual, hmacSha256Hex } from "../../../../lib/security";
 import { attemptAutomaticRefund } from "../../../../lib/refunds";
+import { recordEvent } from "../../../../lib/logging";
 
 export async function POST(request: Request) {
   const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
     event?: string;
     payload?: {
       payment?: { entity?: { id?: string; order_id?: string; status?: string; amount?: number; currency?: string } };
-      refund?: { entity?: { id?: string; payment_id?: string; status?: string } };
+      refund?: { entity?: { id?: string; payment_id?: string; amount?: number; currency?: string; status?: string } };
     };
   };
   try {
@@ -34,8 +35,20 @@ export async function POST(request: Request) {
   const refund = event.payload?.refund?.entity;
   if (refund?.payment_id && refund.id && event.event === "refund.processed") {
     const db = getDb();
-    const [order] = await db.select({ id: orders.id, restockRequested: orders.restockRequested }).from(orders).where(eq(orders.razorpayPaymentId, refund.payment_id)).limit(1);
+    const [order] = await db.select({ id: orders.id, totalPaise: orders.totalPaise, paymentStatus: orders.paymentStatus, refundId: orders.refundId, restockRequested: orders.restockRequested }).from(orders).where(eq(orders.razorpayPaymentId, refund.payment_id)).limit(1);
     if (!order) return Response.json({ ok: true });
+    // A partial or mismatched refund cannot turn a full order into refunded.
+    // The webhook is signed, but its financial amount still has to match our
+    // own immutable total before it changes fulfilment or stock.
+    if (refund.amount !== order.totalPaise || refund.currency !== "INR") {
+      await recordEvent({ severity: "warning", eventType: "payment.refund_amount_mismatch", entityType: "order", entityId: order.id });
+      return Response.json({ ok: true });
+    }
+    if (order.refundId && order.refundId !== refund.id) {
+      await recordEvent({ severity: "warning", eventType: "payment.refund_id_mismatch", entityType: "order", entityId: order.id });
+      return Response.json({ ok: true });
+    }
+    if (order.paymentStatus === "refunded") return Response.json({ ok: true });
     await db
       .update(orders)
       .set({

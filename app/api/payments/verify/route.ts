@@ -53,6 +53,12 @@ export async function POST(request: Request) {
   if (payment.order_id !== order.razorpayOrderId || payment.amount !== order.totalPaise || payment.currency !== "INR") return Response.json({ error: "Payment details do not match the order" }, { status: 400 });
 
   if (payment.status === "captured") {
+    if (order.status === "refund_pending") {
+      return Response.json({ ok: true, captured: true, refundPending: true, orderNumber: order.orderNumber, message: "Your payment is already being refunded. Do not place another order for this payment." });
+    }
+    if (order.status === "refunded" || order.paymentStatus === "refunded") {
+      return Response.json({ error: "This payment has already been refunded." }, { status: 409 });
+    }
     const result = await finalizeCapturedOrder(order.id, payment.id, payload.razorpay_signature);
     if (result === "captured") after(() => sendPaidOrderNotifications(order.id));
     if (result === "refund_required") {
@@ -65,6 +71,10 @@ export async function POST(request: Request) {
         orderNumber: order.orderNumber,
         message: "Your payment was received, but the item became unavailable. Your full refund is now being started automatically.",
       });
+    }
+    if (result === "ignored" || result === "missing") {
+      await recordEvent({ severity: "warning", eventType: "checkout.captured_payment_not_fulfillable", entityType: "order", entityId: order.id });
+      return Response.json({ error: "This payment cannot be fulfilled. Please contact Sana for help." }, { status: 409 });
     }
     await recordEvent({ severity: "info", eventType: "checkout.payment_captured", entityType: "order", entityId: order.id });
     return Response.json({ ok: true, captured: true, orderNumber: order.orderNumber });

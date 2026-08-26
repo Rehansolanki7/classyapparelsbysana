@@ -32,6 +32,28 @@ test("Razorpay receives an order number and item summary without exposing custom
   assert.doesNotMatch(createOrder, /notes: \{[^}]*customer/i);
 });
 
+test("only a full, matching Razorpay refund can close an order or restore stock", async () => {
+  const [webhook, adminOrders] = await Promise.all([
+    readFile(new URL("../app/api/payments/webhook/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/orders/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(webhook, /refund\.amount !== order\.totalPaise/);
+  assert.match(webhook, /refund\.currency !== "INR"/);
+  assert.match(webhook, /order\.refundId && order\.refundId !== refund\.id/);
+  assert.match(adminOrders, /payload\.restock && complete/);
+});
+
+test("a captured payment is only shown as successful when it can enter fulfilment", async () => {
+  const [verify, adminOrders] = await Promise.all([
+    readFile(new URL("../app/api/payments/verify/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/orders/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(verify, /result === "ignored" \|\| result === "missing"/);
+  assert.match(verify, /captured_payment_not_fulfillable/);
+  assert.match(verify, /order\.status === "refund_pending"/);
+  assert.match(adminOrders, /This captured payment cannot enter fulfilment/);
+});
+
 test("unpaid checkouts are not customer orders and are scrubbed before short retention", async () => {
   const [account, orders, retention] = await Promise.all([
     readFile(new URL("../app/account/page.tsx", import.meta.url), "utf8"),
