@@ -34,7 +34,7 @@ export default async function AdminPage() {
       db.select().from(instagramImports).orderBy(asc(instagramImports.createdAt)).limit(100),
       db.select().from(orders).orderBy(desc(orders.createdAt)).limit(250),
       db.select().from(coupons).orderBy(desc(coupons.createdAt)).limit(200),
-      db.select().from(systemEvents).orderBy(desc(systemEvents.createdAt)).limit(25),
+      db.select().from(systemEvents).orderBy(desc(systemEvents.createdAt)).limit(200),
     ]);
     imports = importRows.map((item) => ({ ...item, imageUrl: item.imageKey ? uploadUrl(item.imageKey) : item.sourceUrl }));
     const itemRows = orderRows.length

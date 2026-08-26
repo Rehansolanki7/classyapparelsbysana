@@ -85,10 +85,12 @@ type SystemEvent = {
   createdAt: string;
 };
 
+type ActivityCategory = "all" | "payments" | "orders" | "shipping" | "storefront" | "security" | "system";
+
 type SimpleShippingRate = { customerPrice: number; deliveryDaysMin: number; deliveryDaysMax: number };
 type SimpleShippingRates = Record<ShippingZone, SimpleShippingRate>;
 
-type Tab = "overview" | "products" | "instagram" | "orders" | "coupons" | "shipping" | "settings";
+type Tab = "overview" | "products" | "instagram" | "orders" | "activity" | "coupons" | "shipping" | "settings";
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2400;
@@ -167,6 +169,31 @@ function customerWhatsappUrl(phone: string) {
   const digits = phone.replace(/\D/g, "");
   if (!digits) return "";
   return `https://wa.me/${phone.startsWith("+") || digits.length !== 10 ? digits : `91${digits}`}`;
+}
+
+function activityCategory(event: SystemEvent): Exclude<ActivityCategory, "all"> {
+  if (event.severity === "security" || event.eventType.includes("security") || event.eventType.includes("signature")) return "security";
+  if (event.eventType.includes("payment") || event.eventType.includes("refund") || event.eventType.includes("checkout")) return "payments";
+  if (event.eventType.includes("shipping") || event.eventType.includes("courier")) return "shipping";
+  if (event.eventType.includes("storefront") || event.eventType.includes("product") || event.eventType.includes("instagram")) return "storefront";
+  if (event.eventType.includes("order")) return "orders";
+  return "system";
+}
+
+function activityLabel(eventType: string) {
+  const labels: Record<string, string> = {
+    "admin.storefront_content_updated": "Homepage content published",
+    "admin.shipping_rates_published": "Shipping prices published",
+    "admin.shipping_rates_publish_failed": "Shipping price update failed",
+    "admin.order_legal_hold_enabled": "Order legal hold enabled",
+    "admin.order_legal_hold_removed": "Order legal hold removed",
+    "checkout.payment_captured": "Payment captured",
+    "checkout.payment_signature_failed": "Payment signature rejected",
+    "checkout.captured_payment_not_fulfillable": "Captured payment blocked from fulfilment",
+    "payment.refund_amount_mismatch": "Refund amount did not match order",
+    "payment.refund_id_mismatch": "Refund reference did not match order",
+  };
+  return labels[eventType] ?? eventType.replace(/[._]/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function dateForInput(value: string | null) {
@@ -253,6 +280,9 @@ export default function AdminDashboard({
   const [busy, setBusy] = useState(false);
   const [orderFilter, setOrderFilter] = useState<OrderFilter>("to_pack");
   const [orderSearch, setOrderSearch] = useState("");
+  const [activityCategoryFilter, setActivityCategoryFilter] = useState<ActivityCategory>("all");
+  const [activitySeverityFilter, setActivitySeverityFilter] = useState<"all" | SystemEvent["severity"]>("all");
+  const [activitySearch, setActivitySearch] = useState("");
   const [storefrontSettings, setStorefrontSettings] = useState(initialStorefrontSettings);
   const [shippingCards, setShippingCards] = useState(initialShippingConfiguration.cards);
   const [pinRules, setPinRules] = useState(initialShippingConfiguration.pincodeRules);
@@ -288,6 +318,13 @@ export default function AdminDashboard({
     if (!matchesFilter) return false;
     if (!normalizedOrderSearch) return true;
     return [order.orderNumber, order.customerName, order.phone, order.email, order.city, order.state, order.postalCode, ...order.items.map((item) => item.productName)].join(" ").toLowerCase().includes(normalizedOrderSearch);
+  });
+  const normalizedActivitySearch = activitySearch.trim().toLowerCase();
+  const visibleActivities = initialEvents.filter((event) => {
+    if (activityCategoryFilter !== "all" && activityCategory(event) !== activityCategoryFilter) return false;
+    if (activitySeverityFilter !== "all" && event.severity !== activitySeverityFilter) return false;
+    if (!normalizedActivitySearch) return true;
+    return [activityLabel(event.eventType), event.eventType, event.detail, event.entityType ?? "", event.entityId ?? ""].join(" ").toLowerCase().includes(normalizedActivitySearch);
   });
 
   function selectProduct(id: string) {
@@ -656,6 +693,7 @@ export default function AdminDashboard({
     { id: "products", label: "Products", count: products.length },
     { id: "instagram", label: "Instagram queue", count: pendingImports.length },
     { id: "orders", label: "Orders", count: orders.length },
+    { id: "activity", label: "Activity", count: initialEvents.length },
     { id: "coupons", label: "Coupons", count: coupons.length },
     { id: "shipping", label: "Shipping" },
     { id: "settings", label: "Site controls" },
@@ -677,7 +715,41 @@ export default function AdminDashboard({
           <div className="metric-grid"><article><span>Products</span><strong>{products.length}</strong><small>{products.filter((item) => item.status === "active").length} live</small></article><article><span>Units in stock</span><strong>{totalStock}</strong><small>Across every size</small></article><article><span>Shipping setup</span><strong>{productsMissingShippingWeight}</strong><small>{productsMissingShippingWeight ? "live product(s) need packed weight" : "Every live product is weighted"}</small></article><article><span>Captured revenue</span><strong>{rupees(revenue)}</strong><small>{paidOrders.length} paid orders</small></article></div>
           <div className="admin-two-col"><article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Inventory</p><h2>What needs attention</h2></div><button onClick={() => setTab("products")}>Manage →</button></div>{products.map((product) => { const stock = product.variants.reduce((sum, variant) => sum + variant.stock, 0); return <div className="attention-row" key={product.id}><img src={product.images[0]} alt="" /><div><strong>{product.name}</strong><span>{product.status} · {stock} units</span></div><span className={stock < 5 ? "low" : "good"}>{stock < 5 ? "Low stock" : "Healthy"}</span></div>; })}</article>
           <article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Workflow</p><h2>Instagram → Store</h2></div></div><div className="workflow-steps"><div className="done"><span>1</span><div><strong>Post on Instagram</strong><small>Keep creating as usual</small></div></div><div><span>2</span><div><strong>Sync to review queue</strong><small>Photos and captions arrive as pending</small></div></div><div><span>3</span><div><strong>Add selling details</strong><small>Set price, sizes and stock, then publish</small></div></div></div><button className="button button-outline" onClick={() => setTab("instagram")}>Open Instagram queue</button></article></div>
-          <article className="admin-card admin-activity"><div className="admin-card-heading"><div><p className="kicker">Operational activity</p><h2>Recent important events</h2></div><small>Only security and actionable system events are retained.</small></div>{initialEvents.length ? <div className="activity-list">{initialEvents.map((event) => <div key={event.id}><span className={`event-severity ${event.severity}`}>{event.severity}</span><strong>{event.eventType.replace(/[._]/g, " ")}</strong><small>{event.detail || "—"} · {shortDate(event.createdAt)}</small></div>)}</div> : <p className="admin-activity-empty">No important events yet. Successful routine page views are deliberately not logged.</p>}</article>
+        </div>}
+
+        {tab === "activity" && <div className="activity-admin">
+          <section className="activity-heading">
+            <div>
+              <p className="kicker">Activity log</p>
+              <h2>Important store events, easy to scan.</h2>
+              <p>Successful page views are not retained. This log is for security, payments and actions that need attention.</p>
+            </div>
+            <label>
+              <span>Search activity</span>
+              <input value={activitySearch} onChange={(event) => setActivitySearch(event.target.value)} placeholder="Search event, detail or reference" />
+            </label>
+          </section>
+          <section className="activity-filters" aria-label="Activity filters">
+            <div>
+              <span>Category</span>
+              <select value={activityCategoryFilter} onChange={(event) => setActivityCategoryFilter(event.target.value as ActivityCategory)}>
+                <option value="all">All categories</option><option value="payments">Payments</option><option value="orders">Orders</option><option value="shipping">Shipping</option><option value="storefront">Storefront</option><option value="security">Security</option><option value="system">System</option>
+              </select>
+            </div>
+            <div>
+              <span>Severity</span>
+              <select value={activitySeverityFilter} onChange={(event) => setActivitySeverityFilter(event.target.value as "all" | SystemEvent["severity"])}>
+                <option value="all">All severities</option><option value="security">Security</option><option value="error">Error</option><option value="warning">Warning</option><option value="info">Information</option>
+              </select>
+            </div>
+            <small>{visibleActivities.length} matching event{visibleActivities.length === 1 ? "" : "s"}</small>
+          </section>
+          {initialEvents.length === 0 ? <div className="admin-empty"><span>◌</span><h2>No important activity yet</h2><p>Security, payment and operational events will appear here when action is needed.</p></div>
+            : visibleActivities.length === 0 ? <div className="admin-empty"><span>⌕</span><h2>No matching activity</h2><p>Clear the search or choose a different filter.</p></div>
+              : <div className="activity-log-list">{visibleActivities.map((event) => <article key={event.id}>
+                <div className="activity-event-tags"><span className={`event-severity ${event.severity}`}>{event.severity}</span><span className={`activity-category ${activityCategory(event)}`}>{activityCategory(event)}</span></div>
+                <div><h3>{activityLabel(event.eventType)}</h3><p>{event.detail || "No additional detail was recorded."}</p><small>{event.entityType ? `${event.entityType}${event.entityId ? ` · ${event.entityId}` : ""}` : "System"} · {shortDate(event.createdAt)}</small></div>
+              </article>)}</div>}
         </div>}
 
         {tab === "products" && <div className="product-admin-layout">
