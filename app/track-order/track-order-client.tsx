@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { countryName } from "../../lib/locations";
 import { whatsappHref } from "../../lib/whatsapp";
+import { readJsonResponse } from "../../lib/http";
 import BrandLogo from "../components/brand-logo";
 
 type TrackedOrder = {
@@ -53,15 +54,20 @@ export default function TrackOrderClient({ initialOrderNumber }: { initialOrderN
     setBusy(true);
     setError("");
     setOrder(null);
-    const response = await fetch("/api/orders/track", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ orderNumber, email }),
-    });
-    const result = (await response.json()) as { order?: TrackedOrder; error?: string };
-    if (!response.ok || !result.order) setError(result.error || "We couldn't find that order");
-    else setOrder(result.order);
-    setBusy(false);
+    try {
+      const response = await fetch("/api/orders/track", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ orderNumber, email }),
+      });
+      const result = await readJsonResponse<{ order?: TrackedOrder; error?: string }>(response);
+      if (!response.ok || !result.order) setError(result.error || "We couldn't find that order.");
+      else setOrder(result.order);
+    } catch {
+      setError("We couldn’t check that order right now. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const currentIndex = order ? steps.findIndex((step) => step.key === order.status) : -1;

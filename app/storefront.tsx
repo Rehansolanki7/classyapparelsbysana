@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CatalogProduct } from "../lib/catalog";
 import type { StorefrontSettings } from "../lib/storefront-settings";
 import WhatsAppFloat from "./components/whatsapp-float";
 import BrandLogo from "./components/brand-logo";
+import { useOverlayDialog } from "./components/use-overlay-dialog";
 import { whatsappHref } from "../lib/whatsapp";
 
 type BagItem = { productId: string; size: string; quantity: number };
@@ -76,6 +77,15 @@ export default function Storefront({ product, products, settings }: { product: C
   const [hydrated, setHydrated] = useState(false);
   const [notice, setNotice] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const closeSearch = useCallback(() => setSearchOpen(false), []);
+  const closeCart = useCallback(() => setCartOpen(false), []);
+  const closeSizeGuide = useCallback(() => setSizeOpen(false), []);
+  const closeOverlays = useCallback(() => { setMenuOpen(false); setCartOpen(false); setSizeOpen(false); setSearchOpen(false); }, []);
+  const menuDialogRef = useOverlayDialog<HTMLElement>(menuOpen, closeMenu);
+  const cartDialogRef = useOverlayDialog<HTMLElement>(cartOpen, closeCart);
+  const sizeDialogRef = useOverlayDialog<HTMLElement>(sizeOpen, closeSizeGuide);
+  const searchDialogRef = useOverlayDialog<HTMLDivElement>(searchOpen, closeSearch, "input");
 
   const sizes = product.variants.filter((variant) => variant.active).map((variant) => variant.size);
   const galleryImages = product.images.length ? product.images : ["/products/sea-mist-01.webp"];
@@ -85,11 +95,12 @@ export default function Storefront({ product, products, settings }: { product: C
   const heroImage = resolveHomepageImage(settings.featuredHeroImageUrl, styledImage);
   const detailPrimaryImage = resolveHomepageImage(settings.detailPrimaryImageUrl, galleryImages[2] ?? coverImage);
   const detailSecondaryImage = resolveHomepageImage(settings.detailSecondaryImageUrl, galleryImages[4] ?? styledImage);
+  const overlayOpen = menuOpen || cartOpen || sizeOpen || searchOpen;
 
   useEffect(() => {
-    document.body.classList.toggle("no-scroll", menuOpen || cartOpen || sizeOpen || searchOpen);
+    document.body.classList.toggle("no-scroll", overlayOpen);
     return () => document.body.classList.remove("no-scroll");
-  }, [menuOpen, cartOpen, sizeOpen, searchOpen]);
+  }, [overlayOpen]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -164,19 +175,21 @@ export default function Storefront({ product, products, settings }: { product: C
 
   return (
     <main>
+      <div className="storefront-content" inert={overlayOpen || undefined} aria-hidden={overlayOpen || undefined}>
       <a className="skip-link" href="#shop">Skip to products</a>
       <div className="announcement"><span>{settings.promotionText}</span><a href={settings.promotionCtaHref}>{settings.promotionCtaLabel} →</a></div>
 
       <header className="site-header">
-        <button className="icon-button mobile-only" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Icon name="menu" size={23} /></button>
+        <button className="icon-button mobile-only" onClick={() => setMenuOpen(true)} aria-label="Open menu" aria-expanded={menuOpen} aria-controls="main-menu"><Icon name="menu" size={23} /></button>
         <BrandLogo className="wordmark" priority />
         <nav className="desktop-nav" aria-label="Main navigation">
-          <a href="/shop">Shop</a><a href="/track-order">Track order</a><button onClick={() => setSizeOpen(true)}>Size guide</button><a href="#story">Our story</a>
+          <a href="/shop">Shop</a><a href="/track-order">Track order</a><button onClick={() => setSizeOpen(true)} aria-expanded={sizeOpen} aria-controls="size-guide">Size guide</button><a href="#story">Our story</a>
         </nav>
         <div className="header-actions">
-          <button className="icon-button desktop-icon" onClick={() => setSearchOpen(true)} aria-label="Search"><Icon name="search" /></button>
+          <button className="icon-button desktop-icon" onClick={() => setSearchOpen(true)} aria-label="Search" aria-expanded={searchOpen} aria-controls="site-search"><Icon name="search" /></button>
           <a className="icon-button desktop-icon" href="/account" aria-label="My orders"><Icon name="user" /></a>
-          <button className="icon-button cart-button" onClick={() => setCartOpen(true)} aria-label={`Open bag with ${bagCount} items`}><Icon name="bag" />{bagCount > 0 && <span className="cart-count">{bagCount}</span>}</button>
+          <button className="icon-button mobile-search" onClick={() => setSearchOpen(true)} aria-label="Search" aria-expanded={searchOpen} aria-controls="site-search"><Icon name="search" /></button>
+          <button className="icon-button cart-button" onClick={() => setCartOpen(true)} aria-label={`Open bag with ${bagCount} items`} aria-expanded={cartOpen} aria-controls="shopping-bag"><Icon name="bag" />{bagCount > 0 && <span className="cart-count">{bagCount}</span>}</button>
         </div>
       </header>
 
@@ -193,8 +206,8 @@ export default function Storefront({ product, products, settings }: { product: C
         </div>
         <div className="hero-visual">
           <div className="hero-image-backdrop" style={{ backgroundImage: `url(${heroImage})` }} />
-          <img src={heroImage} alt={`${product.name}, styled view`} className="hero-image" />
-          <div className="hero-card"><span>{settings.featuredKicker}</span><strong>{product.name}</strong><small>{money(product.price)}</small></div>
+          <img src={heroImage} alt={`${product.name}, styled view`} className="hero-image" fetchPriority="high" decoding="async" />
+          <a className="hero-card" href={`/products/${product.slug}`} aria-label={`View ${product.name}`}><span>{settings.featuredKicker}</span><strong>{product.name}</strong><small>{money(product.price)}</small></a>
         </div>
       </section>
 
@@ -212,11 +225,11 @@ export default function Storefront({ product, products, settings }: { product: C
       <section className="product-showcase">
         <div className="gallery-column">
           <div className="main-product-image">
-            <img src={galleryImages[selectedImage] ?? coverImage} alt={`${product.name}, view ${selectedImage + 1}`} />
+            <img src={galleryImages[selectedImage] ?? coverImage} alt={`${product.name}, view ${selectedImage + 1}`} decoding="async" />
             <span className="product-badge">{product.badge}</span>
           </div>
           <div className="thumbnail-row" aria-label="Product images">
-            {galleryImages.map((image, index) => <button key={image} className={selectedImage === index ? "active" : ""} onClick={() => setSelectedImage(index)} aria-label={`View product image ${index + 1}`}><img src={image} alt="" /></button>)}
+            {galleryImages.map((image, index) => <button key={image} className={selectedImage === index ? "active" : ""} onClick={() => setSelectedImage(index)} aria-label={`View product image ${index + 1}`} aria-pressed={selectedImage === index}><img src={image} alt="" loading="lazy" decoding="async" /></button>)}
           </div>
         </div>
 
@@ -227,7 +240,7 @@ export default function Storefront({ product, products, settings }: { product: C
           <p className="tax-note">Inclusive of all taxes</p>
           <p className="product-description">{product.description}</p>
           {product.includes && <div className="includes"><span>Includes</span><strong>{product.includes}</strong></div>}
-          <div className="size-heading" id="size-picker"><span>Select size</span><button onClick={() => setSizeOpen(true)}>Find my size</button></div>
+          <div className="size-heading" id="size-picker"><span>Select size</span><button onClick={() => setSizeOpen(true)} aria-expanded={sizeOpen} aria-controls="size-guide">Find my size</button></div>
           <div className="size-options">{sizes.map((size) => {
             const soldOut = (product.variants.find((variant) => variant.size === size)?.stock ?? 0) <= 0;
             return <button key={size} disabled={soldOut} className={selectedSize === size ? "selected" : ""} onClick={() => { setSelectedSize(size); setNotice(""); }} aria-pressed={selectedSize === size}>{size}</button>;
@@ -242,8 +255,8 @@ export default function Storefront({ product, products, settings }: { product: C
 
       <section className="detail-story">
         <div className="detail-copy"><p className="kicker">{settings.detailKicker}</p><h2>{settings.detailHeading}</h2><p>{settings.detailBody || product.description}</p><button className="text-link" onClick={() => { setSelectedImage(Math.min(2, galleryImages.length - 1)); document.getElementById("shop")?.scrollIntoView({ behavior: "smooth" }); }}>See the close-up <Icon name="arrow" size={17} /></button></div>
-        <div className="detail-image"><img src={detailPrimaryImage} alt={`${product.name}, detail view`} /></div>
-        <div className="detail-image second"><img src={detailSecondaryImage} alt={`${product.name}, alternate detail view`} /></div>
+        <div className="detail-image"><img src={detailPrimaryImage} alt={`${product.name}, detail view`} loading="lazy" decoding="async" /></div>
+        <div className="detail-image second"><img src={detailSecondaryImage} alt={`${product.name}, alternate detail view`} loading="lazy" decoding="async" /></div>
       </section>
 
       <section className="story-section" id="story">
@@ -259,44 +272,45 @@ export default function Storefront({ product, products, settings }: { product: C
 
       <footer>
         <div className="footer-brand"><span className="wordmark-main">Classy Apparels</span><p>Thoughtful everyday elegance, selected by Sana in small drops.</p></div>
-        <div><h3>Shop</h3><a href="/shop">Shop</a><button onClick={() => setSizeOpen(true)}>Size guide</button></div>
+        <div><h3>Shop</h3><a href="/shop">Shop</a><button onClick={() => setSizeOpen(true)} aria-expanded={sizeOpen} aria-controls="size-guide">Size guide</button></div>
         <div><h3>Help</h3><a href="/account">My orders</a><a href="/track-order">Track order</a><a href="/policies#shipping">Shipping</a><a href="/policies#exchange">Exchange policy</a><a href={whatsappHref("Hi Sana, I need help with an order or shopping question.")} target="_blank" rel="noreferrer">WhatsApp us</a></div>
         <div><h3>Follow</h3><a href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer">Instagram</a><a href="/admin">Admin</a></div>
         <div className="footer-bottom"><span>© 2026 Classy Apparels by Sana</span><span>Made with care in India</span></div>
       </footer>
 
       <WhatsAppFloat message={productMessage} />
+      </div>
 
-      <div className={`overlay ${menuOpen || cartOpen || sizeOpen || searchOpen ? "show" : ""}`} onClick={() => { setMenuOpen(false); setCartOpen(false); setSizeOpen(false); setSearchOpen(false); }} />
+      <button type="button" className={`overlay ${overlayOpen ? "show" : ""}`} onClick={closeOverlays} aria-label="Close open panel" tabIndex={overlayOpen ? 0 : -1} />
 
-      <aside className={`side-panel menu-panel ${menuOpen ? "open" : ""}`} aria-hidden={!menuOpen}>
-        <div className="panel-header"><span>Menu</span><button className="icon-button" onClick={() => setMenuOpen(false)} aria-label="Close menu"><Icon name="close" /></button></div>
+      <aside ref={menuDialogRef} id="main-menu" className={`side-panel menu-panel ${menuOpen ? "open" : ""}`} aria-hidden={!menuOpen} aria-labelledby="menu-title" aria-modal="true" inert={!menuOpen} role="dialog" tabIndex={-1}>
+        <div className="panel-header"><span id="menu-title">Menu</span><button className="icon-button" onClick={closeMenu} aria-label="Close menu"><Icon name="close" /></button></div>
         <nav><a href="/shop">Shop <Icon name="chevron" /></a><a href="/account">My orders <Icon name="chevron" /></a><a href="/track-order">Track order <Icon name="chevron" /></a><button onClick={() => { setMenuOpen(false); setSizeOpen(true); }}>Size guide <Icon name="chevron" /></button><a href="#story" onClick={() => setMenuOpen(false)}>Our story <Icon name="chevron" /></a></nav>
         <a className="menu-instagram" href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer"><Icon name="instagram" /> @classy_apparels_bysana</a>
       </aside>
 
-      <aside className={`side-panel cart-panel ${cartOpen ? "open" : ""}`} aria-hidden={!cartOpen}>
-        <div className="panel-header"><span>Your bag · {bagCount}</span><button className="icon-button" onClick={() => setCartOpen(false)} aria-label="Close bag"><Icon name="close" /></button></div>
+      <aside ref={cartDialogRef} id="shopping-bag" className={`side-panel cart-panel ${cartOpen ? "open" : ""}`} aria-hidden={!cartOpen} aria-labelledby="bag-title" aria-modal="true" inert={!cartOpen} role="dialog" tabIndex={-1}>
+        <div className="panel-header"><span id="bag-title">Your bag · {bagCount}</span><button className="icon-button" onClick={closeCart} aria-label="Close bag"><Icon name="close" /></button></div>
         {!bagLines.length ? (
           <div className="empty-cart"><Icon name="bag" size={34} /><h2>Your bag is waiting</h2><p>Start with the first Sana edit.</p><button className="button button-dark" onClick={() => { setCartOpen(false); document.getElementById("shop")?.scrollIntoView({ behavior: "smooth" }); }}>Explore the drop</button></div>
         ) : (
           <div className="cart-content">
-            <div className="shop-bag-items">{bagLines.map(({ item, product: bagProduct, index }) => <div className="shop-bag-item" key={`${item.productId}-${item.size}`}><img src={bagProduct.images[0]} alt="" /><div><strong>{bagProduct.name}</strong><span>Size {item.size}</span><small>{money(bagProduct.price * item.quantity)}</small><div className="quantity-control"><button onClick={() => changeQuantity(index, item.quantity - 1)} aria-label="Decrease quantity">−</button><span>{item.quantity}</span><button onClick={() => changeQuantity(index, item.quantity + 1)} aria-label="Increase quantity">+</button></div></div><button className="bag-remove" onClick={() => changeQuantity(index, 0)} aria-label={`Remove ${bagProduct.name}`}>×</button></div>)}</div>
+            <div className="shop-bag-items">{bagLines.map(({ item, product: bagProduct, index }) => <div className="shop-bag-item" key={`${item.productId}-${item.size}`}><img src={bagProduct.images[0]} alt="" loading="lazy" decoding="async" /><div><strong>{bagProduct.name}</strong><span>Size {item.size}</span><small>{money(bagProduct.price * item.quantity)}</small><div className="quantity-control"><button onClick={() => changeQuantity(index, item.quantity - 1)} aria-label="Decrease quantity">−</button><span>{item.quantity}</span><button onClick={() => changeQuantity(index, item.quantity + 1)} aria-label="Increase quantity">+</button></div></div><button className="bag-remove" onClick={() => changeQuantity(index, 0)} aria-label={`Remove ${bagProduct.name}`}>×</button></div>)}</div>
             <div className="cart-summary"><div><span>Subtotal</span><strong>{money(bagSubtotal)}</strong></div><small>Shipping is calculated from packed weight and destination at checkout.</small></div>
             <a href={checkoutHref} className="button button-dark checkout-button">Secure checkout <Icon name="arrow" size={18} /></a><p className="secure-line"><Icon name="shield" size={16} /> Protected checkout · UPI · Cards</p>
           </div>
         )}
       </aside>
 
-      <aside className={`side-panel size-panel ${sizeOpen ? "open" : ""}`} aria-hidden={!sizeOpen}>
-        <div className="panel-header"><span>Find your size</span><button className="icon-button" onClick={() => setSizeOpen(false)} aria-label="Close size guide"><Icon name="close" /></button></div>
+      <aside ref={sizeDialogRef} id="size-guide" className={`side-panel size-panel ${sizeOpen ? "open" : ""}`} aria-hidden={!sizeOpen} aria-labelledby="size-guide-title" aria-modal="true" inert={!sizeOpen} role="dialog" tabIndex={-1}>
+        <div className="panel-header"><span id="size-guide-title">Find your size</span><button className="icon-button" onClick={closeSizeGuide} aria-label="Close size guide"><Icon name="close" /></button></div>
         <div className="size-guide-content"><p>Body measurements in inches. For a relaxed fit, choose the larger size when you fall between two measurements.</p><table><thead><tr><th>Size</th><th>Bust</th><th>Waist</th><th>Hip</th></tr></thead><tbody>{sizeRows.map((row) => <tr key={row[0]}>{row.map((value, index) => <td key={value}>{index === 0 ? <strong>{value}</strong> : value}</td>)}</tr>)}</tbody></table><div className="measure-note"><strong>How to measure</strong><p>Keep the tape comfortably level around the fullest part of your bust and hips, and around your natural waist.</p></div><a className="button whatsapp-product-button" href={whatsappHref(sizeHelpMessage)} target="_blank" rel="noreferrer">Need help? Ask Sana</a></div>
       </aside>
 
-      <div className={`search-overlay ${searchOpen ? "open" : ""}`} aria-hidden={!searchOpen}>
-        <div className="search-top"><span>What are you looking for?</span><button className="icon-button" onClick={() => setSearchOpen(false)} aria-label="Close search"><Icon name="close" /></button></div>
-        <form className="search-field" onSubmit={(event) => { event.preventDefault(); router.push(`/shop?q=${encodeURIComponent(searchQuery)}`); }}><Icon name="search" size={28} /><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} autoFocus={searchOpen} placeholder="Search dresses, sets, colours…" aria-label="Search products" /><button type="submit" aria-label="Search">→</button></form>
-        <p>Popular now</p><div className="search-chips"><button onClick={() => setSearchQuery("Aqua")}>Aqua sets</button><button onClick={() => setSearchQuery("3-piece")}>3-piece suits</button><button onClick={() => router.push("/shop")}>New arrivals</button></div>
+      <div ref={searchDialogRef} id="site-search" className={`search-overlay ${searchOpen ? "open" : ""}`} aria-hidden={!searchOpen} aria-labelledby="search-title" aria-modal="true" inert={!searchOpen} role="dialog" tabIndex={-1}>
+        <div className="search-top"><span id="search-title">What are you looking for?</span><button className="icon-button" onClick={closeSearch} aria-label="Close search"><Icon name="close" /></button></div>
+        <form className="search-field" onSubmit={(event) => { event.preventDefault(); closeSearch(); router.push(`/shop?q=${encodeURIComponent(searchQuery)}`); }}><Icon name="search" size={28} /><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search dresses, sets, colours…" aria-label="Search products" /><button type="submit" aria-label="Search">→</button></form>
+        <p>Popular now</p><div className="search-chips"><button onClick={() => setSearchQuery("Aqua")}>Aqua sets</button><button onClick={() => setSearchQuery("3-piece")}>3-piece suits</button><button onClick={() => { closeSearch(); router.push("/shop"); }}>New arrivals</button></div>
       </div>
     </main>
   );

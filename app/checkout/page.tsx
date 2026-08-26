@@ -57,14 +57,26 @@ export default async function CheckoutPage({
     selections.push({ productId: product.id, size: variant.size, quantity: Math.min(request.quantity, variant.stock, 5) });
   }
 
-  if (!selections.length && products.length) {
-    const product = products.find((item) => item.id === params.product) ?? products[0];
-    const available = product.variants.filter((variant) => variant.active && variant.stock > 0);
-    const variant = available.find((item) => item.size === params.size) ?? available[0];
-    if (variant) {
+  // A direct "Buy now" link must name one in-stock size. An empty, malformed
+  // or no-longer-available cart must stay empty; silently choosing a product
+  // or size risks charging for the wrong piece.
+  if (!selections.length && !params.cart && params.product) {
+    const product = products.find((item) => item.id === params.product);
+    const variant = product?.variants.find((item) => item.active && item.stock > 0 && item.size === params.size);
+    if (product && variant) {
       const requestedQuantity = Math.max(1, Math.min(5, Number.parseInt(params.qty ?? "1", 10) || 1));
       selections.push({ productId: product.id, size: variant.size, quantity: Math.min(requestedQuantity, variant.stock) });
     }
+  }
+
+  if (!selections.length) {
+    return <main className="checkout-shell checkout-success checkout-empty">
+      <BrandLogo variant="stacked" className="checkout-success-brand" priority />
+      <p className="kicker">Your bag</p>
+      <h1>Your bag is empty.</h1>
+      <p>Choose a size and add a piece before entering delivery details. If an item sold out while you were browsing, the shop will show the latest availability.</p>
+      <div className="checkout-success-actions"><Link className="button button-dark" href="/shop">Browse the shop</Link><Link className="text-link" href="/track-order">Track an order</Link></div>
+    </main>;
   }
 
   const initialCustomer = user && !user.adminAuthenticated ? { name: user.name, email: user.email } : undefined;

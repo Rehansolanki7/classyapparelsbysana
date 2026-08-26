@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { AppUser } from "../../lib/auth";
 import type { CatalogProduct } from "../../lib/catalog";
@@ -295,6 +295,11 @@ export default function AdminDashboard({
   const revenue = paidOrders.reduce((sum, order) => sum + order.totalPaise / 100, 0);
   const selected = useMemo(() => products.find((product) => product.id === selectedId) ?? null, [products, selectedId]);
   const selectedCoupon = useMemo(() => coupons.find((coupon) => coupon.id === selectedCouponId) ?? null, [coupons, selectedCouponId]);
+  const productDirty = Boolean(draft && selected && JSON.stringify(draft) !== JSON.stringify(selected));
+  const couponDirty = selectedCoupon
+    ? JSON.stringify(couponDraft) !== JSON.stringify(couponToDraft(selectedCoupon))
+    : Boolean(couponDraft.code || couponDraft.value !== 10 || couponDraft.minOrder || couponDraft.maxDiscount !== "" || couponDraft.startsAt || couponDraft.endsAt || couponDraft.usageLimit !== "" || !couponDraft.active);
+  const hasUnsavedChanges = productDirty || couponDirty;
   const selectedCouponStatus = selectedCoupon ? couponAvailability(selectedCoupon) : null;
   const activeProducts = products.filter((product) => product.status === "active");
   const selectedHomepageProduct = activeProducts.find((product) => product.id === storefrontSettings.featuredProductId) ?? null;
@@ -327,7 +332,26 @@ export default function AdminDashboard({
     return [activityLabel(event.eventType), event.eventType, event.detail, event.entityType ?? "", event.entityId ?? ""].join(" ").toLowerCase().includes(normalizedActivitySearch);
   });
 
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [hasUnsavedChanges]);
+
+  function confirmDiscardChanges() {
+    return !hasUnsavedChanges || window.confirm("You have unsaved changes. Discard them?");
+  }
+
+  function changeTab(nextTab: Tab) {
+    if (nextTab === tab || confirmDiscardChanges()) setTab(nextTab);
+  }
+
   function selectProduct(id: string) {
+    if (id !== selectedId && !confirmDiscardChanges()) return;
     const product = products.find((item) => item.id === id) ?? null;
     setSelectedId(id);
     setDraft(product ? structuredClone(product) : null);
@@ -416,6 +440,7 @@ export default function AdminDashboard({
   }
 
   async function addProduct() {
+    if (!confirmDiscardChanges()) return;
     setBusy(true);
     const response = await fetch("/api/admin/products", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Untitled product" }) });
     if (response.ok) window.location.reload();
@@ -423,6 +448,7 @@ export default function AdminDashboard({
   }
 
   function selectCoupon(id: string) {
+    if (id !== selectedCouponId && !confirmDiscardChanges()) return;
     const coupon = coupons.find((item) => item.id === id);
     if (!coupon) return;
     setSelectedCouponId(id);
@@ -431,6 +457,7 @@ export default function AdminDashboard({
   }
 
   function addCoupon() {
+    if (!confirmDiscardChanges()) return;
     setSelectedCouponId("");
     setCouponDraft(emptyCouponDraft());
     setNotice("");
@@ -703,18 +730,18 @@ export default function AdminDashboard({
     <main className="admin-shell">
       <aside className="admin-sidebar">
         <Link className="admin-brand" href="/"><span>Classy Apparels</span></Link>
-        <nav>{nav.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => setTab(item.id)}><span>{item.label}</span>{item.count !== undefined && <small>{item.count}</small>}</button>)}</nav>
+        <nav>{nav.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => changeTab(item.id)}><span>{item.label}</span>{item.count !== undefined && <small>{item.count}</small>}</button>)}</nav>
         <div className="admin-user"><span>{(user.name || user.email).slice(0, 1).toUpperCase()}</span><div><strong>{user.name || user.email}</strong><small>{user.email}</small></div><a href={signOutPath}>Sign out</a></div>
       </aside>
 
       <section className="admin-main">
-        <header className="admin-topbar"><div><p className="kicker">Sana’s private workspace</p><h1>{nav.find((item) => item.id === tab)?.label}</h1></div><div><Link className="admin-view-store" href="/" target="_blank">View store ↗</Link>{tab === "products" && <button className="button button-dark" onClick={addProduct} disabled={busy}>+ New product</button>}{tab === "coupons" && <button className="button button-dark" onClick={addCoupon} disabled={busy}>+ New coupon</button>}</div></header>
+        <header className="admin-topbar"><div><p className="kicker">Sana’s private workspace</p><h1>{nav.find((item) => item.id === tab)?.label}</h1>{hasUnsavedChanges && <span className="admin-unsaved">Unsaved changes</span>}</div><div><Link className="admin-view-store" href="/" target="_blank">View store ↗</Link>{tab === "products" && <button className="button button-dark" onClick={addProduct} disabled={busy}>+ New product</button>}{tab === "coupons" && <button className="button button-dark" onClick={addCoupon} disabled={busy}>+ New coupon</button>}</div></header>
         {notice && <div className="admin-notice" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
 
         {tab === "overview" && <div className="admin-overview">
           <div className="metric-grid"><article><span>Products</span><strong>{products.length}</strong><small>{products.filter((item) => item.status === "active").length} live</small></article><article><span>Units in stock</span><strong>{totalStock}</strong><small>Across every size</small></article><article><span>Shipping setup</span><strong>{productsMissingShippingWeight}</strong><small>{productsMissingShippingWeight ? "live product(s) need packed weight" : "Every live product is weighted"}</small></article><article><span>Captured revenue</span><strong>{rupees(revenue)}</strong><small>{paidOrders.length} paid orders</small></article></div>
-          <div className="admin-two-col"><article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Inventory</p><h2>What needs attention</h2></div><button onClick={() => setTab("products")}>Manage →</button></div>{products.map((product) => { const stock = product.variants.reduce((sum, variant) => sum + variant.stock, 0); return <div className="attention-row" key={product.id}><img src={product.images[0]} alt="" /><div><strong>{product.name}</strong><span>{product.status} · {stock} units</span></div><span className={stock < 5 ? "low" : "good"}>{stock < 5 ? "Low stock" : "Healthy"}</span></div>; })}</article>
-          <article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Workflow</p><h2>Instagram → Store</h2></div></div><div className="workflow-steps"><div className="done"><span>1</span><div><strong>Post on Instagram</strong><small>Keep creating as usual</small></div></div><div><span>2</span><div><strong>Sync to review queue</strong><small>Photos and captions arrive as pending</small></div></div><div><span>3</span><div><strong>Add selling details</strong><small>Set price, sizes and stock, then publish</small></div></div></div><button className="button button-outline" onClick={() => setTab("instagram")}>Open Instagram queue</button></article></div>
+          <div className="admin-two-col"><article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Inventory</p><h2>What needs attention</h2></div><button onClick={() => changeTab("products")}>Manage →</button></div>{products.map((product) => { const stock = product.variants.reduce((sum, variant) => sum + variant.stock, 0); return <div className="attention-row" key={product.id}><img src={product.images[0]} alt="" loading="lazy" decoding="async" /><div><strong>{product.name}</strong><span>{product.status} · {stock} units</span></div><span className={stock < 5 ? "low" : "good"}>{stock < 5 ? "Low stock" : "Healthy"}</span></div>; })}</article>
+          <article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Workflow</p><h2>Instagram → Store</h2></div></div><div className="workflow-steps"><div className="done"><span>1</span><div><strong>Post on Instagram</strong><small>Keep creating as usual</small></div></div><div><span>2</span><div><strong>Sync to review queue</strong><small>Photos and captions arrive as pending</small></div></div><div><span>3</span><div><strong>Add selling details</strong><small>Set price, sizes and stock, then publish</small></div></div></div><button className="button button-outline" onClick={() => changeTab("instagram")}>Open Instagram queue</button></article></div>
         </div>}
 
         {tab === "activity" && <div className="activity-admin">
@@ -767,13 +794,13 @@ export default function AdminDashboard({
           </div>}
         </div>}
 
-        {tab === "instagram" && <div className="instagram-admin"><div className="integration-banner"><div className="instagram-icon">◎</div><div><p className="kicker">Instagram import</p><h2>Turn posts into polished product drafts.</h2><p>Sync the latest posts, review each one, then add price, sizes and inventory before anything appears publicly.</p></div><button className="button button-dark" onClick={syncInstagram} disabled={busy}>{busy ? "Syncing…" : "Sync latest posts"}</button></div>{pendingImports.length === 0 ? <div className="admin-empty"><span>◎</span><h2>Your review queue is clear</h2><p>Connect the Instagram token in Integrations, then sync. New posts stay private until you approve them.</p><button className="text-link" onClick={() => setTab("settings")}>Check integration setup →</button></div> : <div className="import-grid">{pendingImports.map((item) => <article key={item.id}><div className="import-image"><img src={item.imageUrl} alt="Instagram import preview" /><span>Pending review</span></div><div className="import-copy"><small>{shortDate(item.publishedAt)}</small><p>{item.caption || "No caption"}</p><div><button className="button button-dark" onClick={() => reviewImport(item.id, "create_draft")} disabled={busy}>Create product draft</button><button className="text-link" onClick={() => reviewImport(item.id, "ignore")} disabled={busy}>Ignore</button></div></div></article>)}</div>}</div>}
+        {tab === "instagram" && <div className="instagram-admin"><div className="integration-banner"><div className="instagram-icon">◎</div><div><p className="kicker">Instagram import</p><h2>Turn posts into polished product drafts.</h2><p>Sync the latest posts, review each one, then add price, sizes and inventory before anything appears publicly.</p></div><button className="button button-dark" onClick={syncInstagram} disabled={busy}>{busy ? "Syncing…" : "Sync latest posts"}</button></div>{pendingImports.length === 0 ? <div className="admin-empty"><span>◎</span><h2>Your review queue is clear</h2><p>Connect the Instagram token in Integrations, then sync. New posts stay private until you approve them.</p><button className="text-link" onClick={() => changeTab("settings")}>Check integration setup →</button></div> : <div className="import-grid">{pendingImports.map((item) => <article key={item.id}><div className="import-image"><img src={item.imageUrl} alt="Instagram import preview" loading="lazy" decoding="async" /><span>Pending review</span></div><div className="import-copy"><small>{shortDate(item.publishedAt)}</small><p>{item.caption || "No caption"}</p><div><button className="button button-dark" onClick={() => reviewImport(item.id, "create_draft")} disabled={busy}>Create product draft</button><button className="text-link" onClick={() => reviewImport(item.id, "ignore")} disabled={busy}>Ignore</button></div></div></article>)}</div>}</div>}
 
         {tab === "orders" && <div className="orders-admin">
           <section className="orders-workspace-intro">
             <div><p className="kicker">Fulfilment workspace</p><h2>Prepare paid orders without the clutter.</h2><p>Only payments confirmed as captured can enter packing or shipping. Payment attempts and refunds stay separate in Payment review.</p></div>
             <label className="orders-search"><span>Find an order</span><input value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="Order number, customer, phone, PIN or item" /></label>
-            <div className="order-filter-tabs" role="tablist" aria-label="Order filters">
+            <div className="order-filter-tabs" role="group" aria-label="Order filters">
               {([
                 ["to_pack", "To pack"],
                 ["processing", "Packing"],
@@ -781,7 +808,7 @@ export default function AdminDashboard({
                 ["delivered", "Delivered"],
                 ["all_active", "All active"],
                 ["payment_review", "Payment review"],
-              ] as Array<[OrderFilter, string]>).map(([filter, label]) => <button key={filter} type="button" className={orderFilter === filter ? "active" : ""} onClick={() => setOrderFilter(filter)}><span>{label}</span><b>{orderFilterCounts[filter]}</b></button>)}
+              ] as Array<[OrderFilter, string]>).map(([filter, label]) => <button key={filter} type="button" className={orderFilter === filter ? "active" : ""} aria-pressed={orderFilter === filter} onClick={() => setOrderFilter(filter)}><span>{label}</span><b>{orderFilterCounts[filter]}</b></button>)}
             </div>
           </section>
           {orders.length === 0 ? <div className="admin-empty"><span>□</span><h2>No paid orders yet</h2><p>Captured payments will appear here, ready to prepare for delivery.</p></div> : visibleOrders.length === 0 ? <div className="admin-empty"><span>⌕</span><h2>Nothing matches this view</h2><p>Try another order filter or clear the search.</p></div> : <div className="fulfilment-order-list">

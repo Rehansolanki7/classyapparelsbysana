@@ -10,9 +10,9 @@ export const metadata: Metadata = {
   description: "Discover the latest boutique drops from Classy Apparels by Sana.",
 };
 
-export default async function ShopPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+export default async function ShopPage({ searchParams }: { searchParams: Promise<{ q?: string; bag?: string }> }) {
   const params = await searchParams;
   const [catalog, settings] = await Promise.all([getAllProducts(), getStorefrontSettings()]);
   const products = catalog.filter((product) => product.status === "active");
-  return <ShopClient products={products} settings={settings} initialQuery={(params.q ?? "").slice(0, 100)} />;
+  return <ShopClient products={products} settings={settings} initialQuery={(params.q ?? "").slice(0, 100)} initialBagOpen={params.bag === "open"} />;
 }

@@ -8,6 +8,9 @@ export default function WhatsAppFloat({ message }: { message?: string } = {}) {
 
   // Keep the payment experience focused on the secure checkout flow.
   if (pathname === "/checkout" || pathname.startsWith("/checkout/")) return null;
+  // Owner tools should stay free of customer-facing overlays and accidental
+  // external-navigation shortcuts while fulfilment work is in progress.
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) return null;
   // Product, shop and home pages provide a more useful contextual draft.
   if (!message && (pathname === "/" || pathname === "/shop" || pathname.startsWith("/products/"))) return null;
 

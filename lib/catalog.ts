@@ -44,7 +44,7 @@ export const FALLBACK_PRODUCT: CatalogProduct = {
     "A soft aqua three-piece set with whimsical florals, appliqué details and a statement printed dupatta. Easy to dress up, effortless to live in.",
   includes: "Kurta, trousers and printed dupatta",
   color: "Aqua",
-  fabric: "Confirm in admin",
+  fabric: "",
   care: "Gentle hand wash separately in cold water. Dry in shade.",
   // The starter set weighs approximately 780 g including packaging. Production
   // products should still be checked and adjusted in Admin when needed.
