@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import BrandLogo from "../../components/brand-logo";
 
 export default function AdminLoginClient({ returnTo }: { returnTo: string }) {
   const [accessKey, setAccessKey] = useState("");
@@ -25,5 +26,5 @@ export default function AdminLoginClient({ returnTo }: { returnTo: string }) {
     window.location.assign(returnTo);
   }
 
-  return <main className="auth-page"><Link className="checkout-wordmark" href="/"><span>Classy Apparels</span></Link><section className="auth-card"><p className="kicker">Private workspace</p><h1>Administrator sign in</h1><p>Enter the private admin access key to open the shop dashboard.</p><form onSubmit={signIn}><label><span>Admin access key</span><input type="password" value={accessKey} onChange={(event) => setAccessKey(event.target.value)} autoComplete="current-password" required disabled={busy} /></label>{notice && <p className="auth-notice" role="status">{notice}</p>}<button className="button button-dark" disabled={busy}>{busy ? "Signing in…" : "Open admin dashboard"}</button></form><div className="auth-links"><Link href="/login">Customer sign in</Link><Link href="/">Return to shop</Link></div></section></main>;
+  return <main className="auth-page"><BrandLogo variant="stacked" className="auth-brand" priority /><section className="auth-card"><p className="kicker">Private workspace</p><h1>Administrator sign in</h1><p>Enter the private admin access key to open the shop dashboard.</p><form onSubmit={signIn}><label><span>Admin access key</span><input type="password" value={accessKey} onChange={(event) => setAccessKey(event.target.value)} autoComplete="current-password" required disabled={busy} /></label>{notice && <p className="auth-notice" role="status">{notice}</p>}<button className="button button-dark" disabled={busy}>{busy ? "Signing in…" : "Open admin dashboard"}</button></form><div className="auth-links"><Link href="/login">Customer sign in</Link><Link href="/">Return to shop</Link></div></section></main>;
 }

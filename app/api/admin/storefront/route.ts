@@ -1,3 +1,6 @@
+import { and, eq } from "drizzle-orm";
+import { getDb } from "../../../../db";
+import { productImages, products } from "../../../../db/schema";
 import { rejectUnlessAdmin } from "../../../../lib/admin-auth";
 import { currentUser } from "../../../../lib/auth";
 import { recordEvent } from "../../../../lib/logging";
@@ -7,6 +10,17 @@ const limits: Record<keyof StorefrontSettings, number> = {
   promotionText: 160,
   promotionCtaLabel: 80,
   promotionCtaHref: 240,
+  featuredProductId: 36,
+  featuredKicker: 80,
+  featuredHeroImageUrl: 500,
+  collectionKicker: 80,
+  collectionHeading: 240,
+  collectionBody: 800,
+  detailKicker: 80,
+  detailHeading: 240,
+  detailBody: 800,
+  detailPrimaryImageUrl: 500,
+  detailSecondaryImageUrl: 500,
   heroKicker: 160,
   heroHeading: 160,
   heroAccent: 160,
@@ -41,6 +55,18 @@ export async function PATCH(request: Request) {
     const settings = Object.fromEntries(Object.entries(limits).map(([key, maximum]) => [key, clean(payload[key as keyof StorefrontSettings], maximum) || defaultStorefrontSettings[key as keyof StorefrontSettings]])) as StorefrontSettings;
     if (!isInternalDestination(settings.promotionCtaHref)) {
       return Response.json({ error: "Promotion links must stay on this website (for example, /shop)." }, { status: 400 });
+    }
+    if (settings.featuredProductId) {
+      const db = getDb();
+      const [featuredProduct] = await db.select({ id: products.id, primaryImage: products.primaryImage }).from(products).where(and(eq(products.id, settings.featuredProductId), eq(products.status, "active"))).limit(1);
+      if (!featuredProduct) return Response.json({ error: "Choose a live product for the home page." }, { status: 400 });
+      const imageRows = await db.select({ url: productImages.url }).from(productImages).where(eq(productImages.productId, featuredProduct.id));
+      const approvedImages = new Set([...imageRows.map((image) => image.url), ...(featuredProduct.primaryImage ? [featuredProduct.primaryImage] : [])]);
+      for (const imageUrl of [settings.featuredHeroImageUrl, settings.detailPrimaryImageUrl, settings.detailSecondaryImageUrl]) {
+        if (imageUrl && !approvedImages.has(imageUrl)) return Response.json({ error: "Choose home-page photos from the selected product’s gallery." }, { status: 400 });
+      }
+    } else if (settings.featuredHeroImageUrl || settings.detailPrimaryImageUrl || settings.detailSecondaryImageUrl) {
+      return Response.json({ error: "Choose the home-page product before selecting its photos." }, { status: 400 });
     }
     const copy = Object.values(settings).filter((value) => typeof value === "string").join(" ");
     if (unsupportedShippingClaim.test(copy)) {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { CatalogProduct } from "../lib/catalog";
 import type { StorefrontSettings } from "../lib/storefront-settings";
 import WhatsAppFloat from "./components/whatsapp-float";
+import BrandLogo from "./components/brand-logo";
 import { whatsappHref } from "../lib/whatsapp";
 
 type BagItem = { productId: string; size: string; quantity: number };
@@ -80,6 +81,10 @@ export default function Storefront({ product, products, settings }: { product: C
   const galleryImages = product.images.length ? product.images : ["/products/sea-mist-01.webp"];
   const coverImage = galleryImages[0];
   const styledImage = galleryImages[1] ?? coverImage;
+  const resolveHomepageImage = (imageUrl: string, fallback: string) => imageUrl && galleryImages.includes(imageUrl) ? imageUrl : fallback;
+  const heroImage = resolveHomepageImage(settings.featuredHeroImageUrl, styledImage);
+  const detailPrimaryImage = resolveHomepageImage(settings.detailPrimaryImageUrl, galleryImages[2] ?? coverImage);
+  const detailSecondaryImage = resolveHomepageImage(settings.detailSecondaryImageUrl, galleryImages[4] ?? styledImage);
 
   useEffect(() => {
     document.body.classList.toggle("no-scroll", menuOpen || cartOpen || sizeOpen || searchOpen);
@@ -164,7 +169,7 @@ export default function Storefront({ product, products, settings }: { product: C
 
       <header className="site-header">
         <button className="icon-button mobile-only" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Icon name="menu" size={23} /></button>
-        <a className="wordmark" href="#top" aria-label="Classy Apparels home"><span className="wordmark-main">Classy Apparels</span></a>
+        <BrandLogo className="wordmark" priority />
         <nav className="desktop-nav" aria-label="Main navigation">
           <a href="/shop">Shop</a><a href="/track-order">Track order</a><button onClick={() => setSizeOpen(true)}>Size guide</button><a href="#story">Our story</a>
         </nav>
@@ -187,9 +192,9 @@ export default function Storefront({ product, products, settings }: { product: C
           <div className="hero-note"><span>01</span><p>{product.color ? `${product.name} in ${product.color}.` : product.description}</p></div>
         </div>
         <div className="hero-visual">
-          <div className="hero-image-backdrop" style={{ backgroundImage: `url(${styledImage})` }} />
-          <img src={styledImage} alt={`${product.name}, styled view`} className="hero-image" />
-          <div className="hero-card"><span>Just arrived</span><strong>{product.name}</strong><small>{money(product.price)}</small></div>
+          <div className="hero-image-backdrop" style={{ backgroundImage: `url(${heroImage})` }} />
+          <img src={heroImage} alt={`${product.name}, styled view`} className="hero-image" />
+          <div className="hero-card"><span>{settings.featuredKicker}</span><strong>{product.name}</strong><small>{money(product.price)}</small></div>
         </div>
       </section>
 
@@ -200,8 +205,8 @@ export default function Storefront({ product, products, settings }: { product: C
       </section>
 
       <section className="editorial-intro" id="shop">
-        <div><p className="kicker">New arrival</p><h2>Made to be noticed.<br />Easy enough for every day.</h2></div>
-        <p>Our drops are intentionally small. Each piece is photographed honestly so you can see the colour, fall and finishing before you choose.</p>
+        <div><p className="kicker">{settings.collectionKicker}</p><h2>{settings.collectionHeading}</h2></div>
+        <p>{settings.collectionBody}</p>
       </section>
 
       <section className="product-showcase">
@@ -236,13 +241,13 @@ export default function Storefront({ product, products, settings }: { product: C
       </section>
 
       <section className="detail-story">
-        <div className="detail-copy"><p className="kicker">The detail edit</p><h2>Thoughtful details, seen up close.</h2><p>{product.description}</p><button className="text-link" onClick={() => { setSelectedImage(Math.min(2, galleryImages.length - 1)); document.getElementById("shop")?.scrollIntoView({ behavior: "smooth" }); }}>See the close-up <Icon name="arrow" size={17} /></button></div>
-        <div className="detail-image"><img src={galleryImages[2] ?? coverImage} alt={`${product.name}, detail view`} /></div>
-        <div className="detail-image second"><img src={galleryImages[4] ?? styledImage} alt={`${product.name}, alternate detail view`} /></div>
+        <div className="detail-copy"><p className="kicker">{settings.detailKicker}</p><h2>{settings.detailHeading}</h2><p>{settings.detailBody || product.description}</p><button className="text-link" onClick={() => { setSelectedImage(Math.min(2, galleryImages.length - 1)); document.getElementById("shop")?.scrollIntoView({ behavior: "smooth" }); }}>See the close-up <Icon name="arrow" size={17} /></button></div>
+        <div className="detail-image"><img src={detailPrimaryImage} alt={`${product.name}, detail view`} /></div>
+        <div className="detail-image second"><img src={detailSecondaryImage} alt={`${product.name}, alternate detail view`} /></div>
       </section>
 
       <section className="story-section" id="story">
-        <div className="story-mark">S</div>
+        <BrandLogo variant="mark" className="story-mark" />
         <div><p className="kicker">A note from Sana</p><h2>{settings.storyHeading}</h2><p>{settings.storyBody}</p></div>
         <a href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer" className="button button-outline">Meet us on Instagram</a>
       </section>

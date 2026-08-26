@@ -6,6 +6,7 @@ import type { CatalogProduct } from "../../lib/catalog";
 import { readJsonResponse } from "../../lib/http";
 import { COUNTRIES, INDIA_STATES, countryName } from "../../lib/locations";
 import { whatsappHref } from "../../lib/whatsapp";
+import BrandLogo from "../components/brand-logo";
 
 export type CheckoutSelection = { productId: string; size: string; quantity: number };
 type SavedAddress = { id: string; label: string; recipientName: string; phone: string; addressLine1: string; addressLine2: string; city: string; state: string; countryCode: string; postalCode: string; isDefault: boolean };
@@ -330,7 +331,7 @@ export default function CheckoutClient({
   if (success) {
     return (
       <main className="checkout-shell checkout-success">
-        <Link className="checkout-wordmark" href="/"><span>Classy Apparels</span></Link>
+        <BrandLogo variant="stacked" className="checkout-success-brand" priority />
         <div className="success-mark">✓</div>
         <p className="kicker">Order {success.orderNumber}</p>
         <h1>{success.refundPending ? "Your refund is being arranged." : success.captured ? "Your order is confirmed." : "Your payment is being confirmed."}</h1>
@@ -344,7 +345,7 @@ export default function CheckoutClient({
     <main className="checkout-page">
       <header className="checkout-header">
         <Link href="/shop" className="checkout-back">← Back to shop</Link>
-        <Link className="checkout-wordmark" href="/"><span>Classy Apparels</span></Link>
+        <BrandLogo className="checkout-wordmark" priority />
         <span className="checkout-lock">Secure checkout</span>
       </header>
       <div className="checkout-grid">

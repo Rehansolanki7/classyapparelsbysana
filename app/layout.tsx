@@ -26,8 +26,9 @@ export const metadata: Metadata = {
     images: ["/og.png"],
   },
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: [{ url: "/branding/classy-apparels-ca-mark.png", type: "image/png", sizes: "1254x1254" }],
+    shortcut: "/branding/classy-apparels-ca-mark.png",
+    apple: "/branding/classy-apparels-ca-mark.png",
   },
 };
 

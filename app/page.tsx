@@ -1,10 +1,13 @@
 import Storefront from "./storefront";
-import { getAllProducts, getFeaturedProduct } from "../lib/catalog";
+import { getAllProducts } from "../lib/catalog";
 import { getStorefrontSettings } from "../lib/storefront-settings";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [product, products, settings] = await Promise.all([getFeaturedProduct(), getAllProducts(), getStorefrontSettings()]);
-  return <Storefront product={product} products={products.filter((item) => item.status === "active")} settings={settings} />;
+  const [catalog, settings] = await Promise.all([getAllProducts(), getStorefrontSettings()]);
+  const products = catalog.filter((item) => item.status === "active");
+  const product = products.find((item) => item.id === settings.featuredProductId) ?? products.find((item) => item.featured) ?? products[0];
+  if (!product) throw new Error("No active product is configured for the storefront.");
+  return <Storefront product={product} products={products} settings={settings} />;
 }

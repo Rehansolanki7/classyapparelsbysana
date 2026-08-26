@@ -150,7 +150,7 @@ The source now follows the core Standard Checkout requirements: a server-created
 
 ### Required before the public go-live decision
 
-1. Deploy this migration and source to staging, then verify the `0006_refund_restock` migration journal entry.
+1. Deploy this source and all pending migrations to staging, then verify the migration journal entries, including `0006_refund_restock` and `0007_homepage_editor`.
 2. In Razorpay **test mode**, test: success; modal close/cancel; failed payment then retry; payment with browser closed; delayed capture; duplicate `payment.captured`/`order.paid`; invalid signature; sold-out capture; coupon-limit race; immediate and asynchronous refund with restock.
 3. Confirm Dashboard auto-capture is enabled for Orders API payments and that the public HTTPS webhook responds correctly in **live mode**. Subscribe to the four events above; monitor failed deliveries.
 4. Verify one low-value live payment and refund end-to-end: one database order, one stock decrement, emails, account history, tracking, refund ID and exactly one restock.

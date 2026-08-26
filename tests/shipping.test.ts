@@ -39,6 +39,21 @@ test("unserviceable destinations and weights above the configured maximum requir
   assert.equal(oversized.manualQuoteRequired, true);
 });
 
+test("a simple one-price-per-zone setup includes packing once and safely quotes above 5 kg", () => {
+  const simpleCards: ShippingRateCard[] = [
+    { id: 1, zone: "mumbai_local", weightLimitGrams: 5000, carrierChargePaise: 5000, deliveryDaysMin: 1, deliveryDaysMax: 2, serviceable: true, lastReviewedAt: null },
+    { id: 2, zone: "maharashtra", weightLimitGrams: 5000, carrierChargePaise: 7000, deliveryDaysMin: 2, deliveryDaysMax: 4, serviceable: true, lastReviewedAt: null },
+    { id: 3, zone: "rest_of_india", weightLimitGrams: 5000, carrierChargePaise: 9000, deliveryDaysMin: 4, deliveryDaysMax: 7, serviceable: true, lastReviewedAt: null },
+  ];
+  const local = calculateShippingFromCards({ cards: simpleCards, pincode: "400001", cartWeightGrams: 1200 });
+  const outsideMaharashtra = calculateShippingFromCards({ cards: simpleCards, pincode: "560001", state: "Karnataka", cartWeightGrams: 1200 });
+  const heavy = calculateShippingFromCards({ cards: simpleCards, pincode: "560001", state: "Karnataka", cartWeightGrams: 5100 });
+
+  assert.equal(local.shippingPaise, 10000);
+  assert.equal(outsideMaharashtra.shippingPaise, 14000);
+  assert.equal(heavy.manualQuoteRequired, true);
+});
+
 test("international delivery stays a manual quote before payment", async () => {
   const manual = await shippingForDestination("GB", "SW1A 1AA", { cartWeightGrams: 500 });
   assert.equal(manual.serviceable, false);

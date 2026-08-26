@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { countryName } from "../../lib/locations";
 import { whatsappHref } from "../../lib/whatsapp";
+import BrandLogo from "../components/brand-logo";
 
 type TrackedOrder = {
   orderNumber: string;
@@ -68,7 +69,7 @@ export default function TrackOrderClient({ initialOrderNumber }: { initialOrderN
 
   return (
     <main className="tracking-page">
-      <header className="tracking-header"><Link href="/">← Home</Link><Link className="checkout-wordmark" href="/"><span>Classy Apparels</span></Link><span><Link href="/account">My orders</Link> · <Link href="/shop">Shop</Link></span></header>
+      <header className="tracking-header"><Link href="/">← Home</Link><BrandLogo className="checkout-wordmark" priority /><span><Link href="/account">My orders</Link> · <Link href="/shop">Shop</Link></span></header>
       <section className="tracking-hero">
         <p className="kicker">Order updates</p>
         <h1>Track your order.</h1>

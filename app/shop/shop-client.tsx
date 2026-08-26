@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { CatalogProduct } from "../../lib/catalog";
 import type { StorefrontSettings } from "../../lib/storefront-settings";
 import WhatsAppFloat from "../components/whatsapp-float";
+import BrandLogo from "../components/brand-logo";
 import { whatsappHref } from "../../lib/whatsapp";
 
 type BagItem = { productId: string; size: string; quantity: number };
@@ -122,7 +123,7 @@ export default function ShopClient({ products, settings, initialQuery }: { produ
   return (
     <main className="shop-page">
       <div className="shop-announcement"><span>{settings.promotionText}</span><Link href={settings.promotionCtaHref}>{settings.promotionCtaLabel} →</Link></div>
-      <header className="shop-header"><Link href="/" className="checkout-back">← Home</Link><Link className="checkout-wordmark" href="/"><span>Classy Apparels</span></Link><div className="shop-header-actions"><Link href="/wishlist">Wishlist</Link><Link href="/account">My orders</Link><Link href="/track-order">Track order</Link><a href={whatsappHref(whatsappMessage)} target="_blank" rel="noreferrer">Need help?</a><button className="shop-bag-button" onClick={() => setBagOpen(true)} aria-label={`Open bag with ${bagCount} items`}><BagIcon />{bagCount > 0 && <span>{bagCount}</span>}</button></div></header>
+      <header className="shop-header"><Link href="/" className="checkout-back">← Home</Link><BrandLogo className="checkout-wordmark" priority /><div className="shop-header-actions"><Link href="/wishlist">Wishlist</Link><Link href="/account">My orders</Link><Link href="/track-order">Track order</Link><a href={whatsappHref(whatsappMessage)} target="_blank" rel="noreferrer">Need help?</a><button className="shop-bag-button" onClick={() => setBagOpen(true)} aria-label={`Open bag with ${bagCount} items`}><BagIcon />{bagCount > 0 && <span>{bagCount}</span>}</button></div></header>
       <section className="shop-heading"><p className="kicker">The Sana edit</p><h1>Pieces worth<br /><em>making plans for.</em></h1><p>Small drops, honest phone photography and sizing help from a real person.</p></section>
       <div className="shop-controls shop-controls-simple"><strong>Shop</strong><label><span className="sr-only">Search products</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name or colour" /></label><select aria-label="Filter by colour" value={colour} onChange={(event) => setColour(event.target.value)}><option value="all">All colours</option>{colours.map((item) => <option key={item} value={item}>{item}</option>)}</select><select aria-label="Filter by availability" value={availability} onChange={(event) => setAvailability(event.target.value)}><option value="all">All availability</option><option value="in_stock">In stock</option><option value="sold_out">Sold out</option></select><select aria-label="Filter by price" value={priceLimit} onChange={(event) => setPriceLimit(event.target.value)}><option value="all">Any price</option><option value="1499">Up to ₹1,499</option><option value="2499">Up to ₹2,499</option><option value="3999">Up to ₹3,999</option></select><span>{visible.length} piece{visible.length === 1 ? "" : "s"}</span></div>
       {visible.length ? <section className="shop-grid">{visible.map((product) => {

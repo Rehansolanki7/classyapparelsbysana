@@ -6,6 +6,7 @@ import { addresses } from "../../db/schema";
 import { getAllProducts } from "../../lib/catalog";
 import { currentUser } from "../../lib/auth";
 import Link from "next/link";
+import BrandLogo from "../components/brand-logo";
 
 export const dynamic = "force-dynamic";
 
@@ -75,7 +76,7 @@ export default async function CheckoutPage({
     if (params.qty) query.set("qty", params.qty);
     const returnTo = `/checkout${query.size ? `?${query.toString()}` : ""}`;
     return <main className="checkout-shell checkout-success">
-      <Link className="checkout-wordmark" href="/"><span>Classy Apparels</span></Link>
+      <BrandLogo variant="stacked" className="checkout-success-brand" priority />
       <p className="kicker">Secure checkout</p>
       <h1>Sign in before adding a delivery address.</h1>
       <p>Create an account if you are new. This keeps your address, order history and payment confirmation safely linked to you.</p>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CatalogProduct } from "../../../lib/catalog";
 import WhatsAppFloat from "../../components/whatsapp-float";
+import BrandLogo from "../../components/brand-logo";
 
 function money(value: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value);
@@ -59,7 +60,7 @@ export default function ProductDetail({ product }: { product: CatalogProduct }) 
   }
   return (
     <main className="product-page">
-      <header className="product-page-header"><Link href="/shop">← Shop</Link><Link className="checkout-wordmark" href="/"><span>Classy Apparels</span></Link><Link href="/track-order">Track order</Link></header>
+      <header className="product-page-header"><Link href="/shop">← Shop</Link><BrandLogo className="checkout-wordmark" priority /><Link href="/track-order">Track order</Link></header>
       <div className="product-page-grid">
         <section className="product-page-gallery"><div className="product-page-main"><img src={images[image] ?? images[0]} alt={`${product.name}, view ${image + 1}`} /></div><div className="product-page-thumbs">{images.map((url, index) => <button key={url} className={image === index ? "active" : ""} onClick={() => setImage(index)}><img src={url} alt="" /></button>)}</div></section>
         <section className="product-page-copy">
