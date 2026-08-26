@@ -16,9 +16,12 @@ function databaseHost() {
 async function seed(connection: Awaited<ReturnType<typeof createConnection>>) {
   const id = "sea-mist-set";
   await connection.execute(
-    "INSERT IGNORE INTO products (id, slug, name, subtitle, description, price_paise, compare_at_paise, status, color, fabric, includes, care, primary_image, featured) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, true)",
-    [id, "sea-mist-3-piece-suit-set", "Sea Mist 3-Piece Suit Set", "The first Sana edit", "A soft aqua three-piece set with whimsical florals, appliqué details and a statement printed dupatta. Easy to dress up, effortless to live in.", 249900, 289900, "Aqua", "Confirm in admin", "Kurta, trousers and printed dupatta", "Gentle hand wash separately in cold water. Dry in shade.", "/products/sea-mist-01.webp"],
+    "INSERT IGNORE INTO products (id, slug, name, subtitle, description, price_paise, compare_at_paise, status, color, fabric, includes, care, primary_image, packed_weight_grams, featured) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, true)",
+    [id, "sea-mist-3-piece-suit-set", "Sea Mist 3-Piece Suit Set", "The first Sana edit", "A soft aqua three-piece set with whimsical florals, appliqué details and a statement printed dupatta. Easy to dress up, effortless to live in.", 249900, 289900, "Aqua", "Confirm in admin", "Kurta, trousers and printed dupatta", "Gentle hand wash separately in cold water. Dry in shade.", "/products/sea-mist-01.webp", 780],
   );
+  // Repair the starter row on deployments that already ran the migration
+  // before the packed weight was added to the seed insert.
+  await connection.execute("UPDATE products SET packed_weight_grams = ? WHERE id = ? AND packed_weight_grams = 0", [780, id]);
   const images = ["01", "02", "03", "04", "05", "06", "07"];
   for (const [position, suffix] of images.entries()) await connection.execute("INSERT IGNORE INTO product_images (product_id, url, alt, position) VALUES (?, ?, ?, ?)", [id, `/products/sea-mist-${suffix}.webp`, `Sea Mist 3-Piece Suit Set, view ${position + 1}`, position]);
   const sizes = ["S", "M", "L", "XL", "XXL", "XXXL", "4XL"];
@@ -32,7 +35,7 @@ async function main() {
     await connection.query("CREATE TABLE IF NOT EXISTS _classy_migrations (version varchar(120) NOT NULL PRIMARY KEY, applied_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP)");
     const [lockRows] = await connection.query("SELECT GET_LOCK('_classy_apparels_migrations', 30) AS acquired");
     if ((lockRows as Array<{ acquired: number }>)[0]?.acquired !== 1) throw new Error("Could not acquire the database migration lock");
-    const migrations = ["0000_public_photon", "0001_release_hardening", "0002_manual_delivery", "0003_customer_experience", "0004_truthful_shipping_privacy"];
+    const migrations = ["0000_public_photon", "0001_release_hardening", "0002_manual_delivery", "0003_customer_experience", "0004_truthful_shipping_privacy", "0005_shipping_seed_fix"];
     for (const version of migrations) {
       const [queryRows] = await connection.query("SELECT version FROM _classy_migrations WHERE version = ?", [version]);
       const rows = queryRows as Array<{ version: string }>;

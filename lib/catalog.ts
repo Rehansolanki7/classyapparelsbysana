@@ -46,8 +46,9 @@ export const FALLBACK_PRODUCT: CatalogProduct = {
   color: "Aqua",
   fabric: "Confirm in admin",
   care: "Gentle hand wash separately in cold water. Dry in shade.",
-  // Development fallback only. Production products must be confirmed in Admin.
-  packedWeightGrams: 0,
+  // The starter set weighs approximately 780 g including packaging. Production
+  // products should still be checked and adjusted in Admin when needed.
+  packedWeightGrams: 780,
   status: "active",
   featured: true,
   source: "manual",

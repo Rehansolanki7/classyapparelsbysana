@@ -8,7 +8,9 @@ import { rejectCrossSite } from "../../../../lib/security";
 
 async function signedInUser() {
   const user = await currentUser();
-  return user?.id ? user : null;
+  // The private admin access-key session is not a customer row in `users` and
+  // must never be used as an address owner.
+  return user?.id && !user.adminAuthenticated ? user : null;
 }
 
 export async function GET() {

@@ -56,6 +56,10 @@ function normalizeWeight(value: number | undefined) {
 }
 
 function defaultZone(state: string | undefined, pincode: string): ShippingZone {
+  // 400xxx PIN codes cover Mumbai. Prefer the PIN when available so a Mumbai
+  // destination does not fall into the broader Maharashtra rate band merely
+  // because the customer selected Maharashtra as the state.
+  if (pincode.startsWith("400")) return "mumbai_local";
   if (state?.trim().toLowerCase() === "maharashtra") return "maharashtra";
   // Explicit admin PIN rules always win; this is only a backwards-compatible
   // fallback for an older client that did not submit state.

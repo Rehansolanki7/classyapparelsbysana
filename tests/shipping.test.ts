@@ -20,6 +20,17 @@ test("shipping adds ₹50 once and rounds the complete cart up to a destination 
   assert.deepEqual({ shipping: rest.shippingPaise, billed: rest.billedWeightGrams }, { shipping: 12200, billed: 500 });
 });
 
+test("Mumbai PIN codes use the local band even when the state is Maharashtra", () => {
+  const mumbai = calculateShippingFromCards({ cards, pincode: "400054", state: "Maharashtra", cartWeightGrams: 780 });
+  assert.deepEqual({ zone: mumbai.zone, shipping: mumbai.shippingPaise, billed: mumbai.billedWeightGrams }, { zone: "mumbai_local", shipping: 9800, billed: 1000 });
+});
+
+test("missing packed weight is reported separately from a courier quote", () => {
+  const missing = calculateShippingFromCards({ cards, pincode: "400054", state: "Maharashtra", cartWeightGrams: 0 });
+  assert.equal(missing.manualQuoteRequired, true);
+  assert.match(missing.note, /confirmed packed weight/);
+});
+
 test("unserviceable destinations and weights above the configured maximum require a manual quote", () => {
   const blocked = calculateShippingFromCards({ cards, pincode: "400001", cartWeightGrams: 300, pincodeRule: { id: 1, pincode: "400001", zone: null, serviceable: false, manualQuoteRequired: false, carrierChargePaise: null, deliveryDaysMin: null, deliveryDaysMax: null, note: "Remote delivery review" } });
   const oversized = calculateShippingFromCards({ cards, pincode: "560001", state: "Karnataka", cartWeightGrams: 1100 });

@@ -148,7 +148,7 @@ async function createOrder(request: Request) {
       variantActive: productVariants.active,
     }).from(products).innerJoin(productVariants, eq(productVariants.productId, products.id)).where(and(eq(products.id, requested.productId), eq(productVariants.size, requested.size))).limit(1);
     if (!selection || selection.status !== "active" || !selection.variantActive) return Response.json({ error: "One of the selected items is no longer available" }, { status: 409 });
-    if (selection.packedWeightGrams <= 0) return Response.json({ error: "This product is not yet configured for delivery. Please message Sana for a shipping quote before payment.", code: "MANUAL_SHIPPING_QUOTE_REQUIRED" }, { status: 409 });
+    if (selection.packedWeightGrams <= 0) return Response.json({ error: "This product is not yet configured for delivery. Please message Sana for a shipping quote before payment.", code: "PRODUCT_SHIPPING_WEIGHT_MISSING" }, { status: 409 });
     selected.push({ ...selection, size: requested.size, quantity: requested.quantity });
   }
 
