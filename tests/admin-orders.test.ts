@@ -14,5 +14,7 @@ test("admin fulfilment view includes paid-order delivery details and keeps payme
   assert.match(dashboard, /Copy delivery details/);
   assert.match(dashboard, /WhatsApp customer/);
   assert.match(dashboard, /Pack these items/);
+  assert.match(dashboard, /Cancel & refund order/);
+  assert.match(dashboard, /Mark shipped/);
   assert.match(dashboard, /This payment attempt cannot enter packing or shipping/);
 });

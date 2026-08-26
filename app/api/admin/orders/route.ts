@@ -11,7 +11,7 @@ const allowed = new Set(["paid", "processing", "shipped", "delivered", "cancelle
 const transitions: Record<string, Set<string>> = {
   pending_payment: new Set(["cancelled"]),
   payment_failed: new Set(["cancelled"]),
-  paid: new Set(["paid", "processing"]),
+  paid: new Set(["paid", "processing", "shipped"]),
   processing: new Set(["processing", "shipped"]),
   shipped: new Set(["shipped", "delivered"]),
   delivered: new Set(["delivered"]),

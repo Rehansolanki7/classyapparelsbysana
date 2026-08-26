@@ -43,7 +43,7 @@ type OrderItem = {
   items: Array<{ productName: string; size: string; quantity: number }>;
 };
 
-type OrderFilter = "to_pack" | "processing" | "shipped" | "all_paid" | "payment_review";
+type OrderFilter = "to_pack" | "processing" | "shipped" | "delivered" | "all_active" | "payment_review";
 
 type CouponItem = {
   id: string;
@@ -273,15 +273,18 @@ export default function AdminDashboard({
     to_pack: orders.filter((order) => isFulfillableOrder(order) && order.status === "paid").length,
     processing: orders.filter((order) => isFulfillableOrder(order) && order.status === "processing").length,
     shipped: orders.filter((order) => isFulfillableOrder(order) && order.status === "shipped").length,
-    all_paid: paidOrders.length,
+    delivered: orders.filter((order) => isFulfillableOrder(order) && order.status === "delivered").length,
+    all_active: orders.filter((order) => isFulfillableOrder(order) && order.status !== "delivered").length,
     payment_review: orders.filter((order) => !isFulfillableOrder(order)).length,
   };
   const normalizedOrderSearch = orderSearch.trim().toLowerCase();
   const visibleOrders = orders.filter((order) => {
-    const matchesFilter = orderFilter === "all_paid" ? isFulfillableOrder(order)
+    const matchesFilter = orderFilter === "all_active" ? isFulfillableOrder(order) && order.status !== "delivered"
       : orderFilter === "payment_review" ? !isFulfillableOrder(order)
         : orderFilter === "to_pack" ? isFulfillableOrder(order) && order.status === "paid"
-          : isFulfillableOrder(order) && order.status === orderFilter;
+          : orderFilter === "processing" ? isFulfillableOrder(order) && order.status === "processing"
+            : orderFilter === "shipped" ? isFulfillableOrder(order) && order.status === "shipped"
+              : isFulfillableOrder(order) && order.status === "delivered";
     if (!matchesFilter) return false;
     if (!normalizedOrderSearch) return true;
     return [order.orderNumber, order.customerName, order.phone, order.email, order.city, order.state, order.postalCode, ...order.items.map((item) => item.productName)].join(" ").toLowerCase().includes(normalizedOrderSearch);
@@ -506,7 +509,8 @@ export default function AdminDashboard({
   }
 
   async function advanceOrder(order: OrderItem) {
-    const nextStatus = order.status === "paid" ? "processing" : order.status === "processing" ? "shipped" : order.status === "shipped" ? "delivered" : "";
+    const readyToShip = Boolean(order.courierName.trim() && order.trackingNumber.trim());
+    const nextStatus = order.status === "paid" ? readyToShip ? "shipped" : "processing" : order.status === "processing" ? "shipped" : order.status === "shipped" ? "delivered" : "";
     if (!nextStatus) return;
     if (nextStatus === "shipped" && (!order.courierName.trim() || !order.trackingNumber.trim())) {
       setNotice("Add the courier and AWB/tracking number before marking this order shipped.");
@@ -562,7 +566,7 @@ export default function AdminDashboard({
   }
 
   async function refundOrder(id: string) {
-    if (!window.confirm("Create a full Razorpay refund for this paid order? This cannot be undone.")) return;
+    if (!window.confirm("Cancel this paid order and issue a full Razorpay refund? The order will not be restocked until Razorpay confirms the refund.")) return;
     setBusy(true); setNotice("");
     const response = await fetch("/api/admin/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "refund", reason: "Customer cancellation", restock: true }) });
     const result = (await response.json()) as { error?: string; status?: string };
@@ -702,7 +706,8 @@ export default function AdminDashboard({
                 ["to_pack", "To pack"],
                 ["processing", "Packing"],
                 ["shipped", "Shipped"],
-                ["all_paid", "All paid"],
+                ["delivered", "Delivered"],
+                ["all_active", "All active"],
                 ["payment_review", "Payment review"],
               ] as Array<[OrderFilter, string]>).map(([filter, label]) => <button key={filter} type="button" className={orderFilter === filter ? "active" : ""} onClick={() => setOrderFilter(filter)}><span>{label}</span><b>{orderFilterCounts[filter]}</b></button>)}
             </div>
@@ -711,7 +716,8 @@ export default function AdminDashboard({
             {visibleOrders.map((order) => {
               const fulfilable = isFulfillableOrder(order);
               const whatsappUrl = customerWhatsappUrl(order.phone);
-              const nextAction = order.status === "paid" ? "Start packing" : order.status === "processing" ? "Mark shipped" : order.status === "shipped" ? "Mark delivered" : "";
+              const readyToShip = Boolean(order.courierName.trim() && order.trackingNumber.trim());
+              const nextAction = order.status === "paid" ? readyToShip ? "Mark shipped" : "Start packing" : order.status === "processing" ? "Mark shipped" : order.status === "shipped" ? "Mark delivered" : "";
               return <article className={`fulfilment-order-card${fulfilable ? "" : " payment-review"}`} key={order.id}>
                 <header><div><p className="kicker">{shortDate(order.createdAt)}</p><h3>{order.orderNumber}</h3></div><strong>{rupees(order.totalPaise / 100)}</strong><span className={`status-pill ${order.status}`}>{order.status.replace("_", " ")}</span></header>
                 {fulfilable ? <>
@@ -720,7 +726,7 @@ export default function AdminDashboard({
                     <section className="order-items-summary"><p className="kicker">Pack these items</p>{order.items.length ? order.items.map((item, index) => <div key={`${item.productName}-${item.size}-${index}`}><strong>{item.quantity} × {item.productName}</strong><span>Size {item.size}</span></div>) : <p>Line items are unavailable. Do not dispatch before checking the customer order record.</p>}</section>
                     <section className="order-fulfilment-actions"><p className="kicker">Fulfilment</p><h4>{order.status === "paid" ? "Ready to pack" : order.status === "processing" ? "Packing in progress" : order.status === "shipped" ? "On its way" : "Delivered"}</h4>{order.status !== "delivered" && <><label><span>Courier</span><input value={order.courierName} onChange={(event) => updateOrderDraft(order.id, { courierName: event.target.value })} placeholder="Delhivery, Blue Dart…" /></label><label><span>Tracking number / AWB</span><input value={order.trackingNumber} onChange={(event) => updateOrderDraft(order.id, { trackingNumber: event.target.value })} placeholder="Shipment reference" /></label><label><span>Tracking link</span><input type="url" value={order.trackingUrl} onChange={(event) => updateOrderDraft(order.id, { trackingUrl: event.target.value })} placeholder="https://…" /></label><div className="order-action-buttons"><button className="button button-outline" onClick={() => saveOrder(order, order.status, "Tracking details saved.")} disabled={busy}>Save tracking</button>{nextAction && <button className="button button-dark" onClick={() => advanceOrder(order)} disabled={busy}>{nextAction}</button>}</div></>}{order.status === "delivered" && <p className="order-complete-note">This order is complete. Tracking details remain in the customer view.</p>}</section>
                   </div>
-                  <footer className="fulfilment-order-footer"><span>Payment confirmed</span><span className={`status-pill ${order.adminNotificationStatus}`}>Email {order.adminNotificationStatus.replace("_", " ")}</span>{order.adminNotificationStatus !== "sent" && <button type="button" className="text-link" onClick={() => resendOrderAlert(order.id)} disabled={busy}>Retry order email</button>}<button type="button" className="text-link refund-action" onClick={() => refundOrder(order.id)} disabled={busy}>Refund & restock</button><a href={`/track-order?order=${encodeURIComponent(order.orderNumber)}`} target="_blank" rel="noreferrer">Customer view ↗</a><details><summary>More controls</summary><label className="feature-toggle"><input type="checkbox" checked={order.legalHold} onChange={(event) => changeLegalHold(order, event.target.checked)} disabled={busy} /><span>Legal hold</span></label></details></footer>
+                  <footer className="fulfilment-order-footer"><span>Payment confirmed</span><span className={`status-pill ${order.adminNotificationStatus}`}>Email {order.adminNotificationStatus.replace("_", " ")}</span>{order.adminNotificationStatus !== "sent" && <button type="button" className="text-link" onClick={() => resendOrderAlert(order.id)} disabled={busy}>Retry order email</button>}<button type="button" className="text-link refund-action" onClick={() => refundOrder(order.id)} disabled={busy}>Cancel & refund order</button><a href={`/track-order?order=${encodeURIComponent(order.orderNumber)}`} target="_blank" rel="noreferrer">Customer view ↗</a><details><summary>More controls</summary><label className="feature-toggle"><input type="checkbox" checked={order.legalHold} onChange={(event) => changeLegalHold(order, event.target.checked)} disabled={busy} /><span>Legal hold</span></label></details></footer>
                 </> : <section className="order-payment-review"><p className="kicker">Not a shipping order</p><h4>{order.status === "refund_pending" ? "Refund in progress" : order.paymentStatus === "refunded" ? "Refunded" : "Payment has not been captured"}</h4><p>{order.status === "refund_pending" ? "Do not pack or dispatch this order. It remains here only until Razorpay confirms the full refund." : order.paymentStatus === "refunded" ? "This payment was refunded and cannot enter fulfilment." : "This payment attempt cannot enter packing or shipping. Canceled attempts have their delivery data cleared automatically."}</p><div>{order.razorpayOrderId && !["captured", "refunded"].includes(order.paymentStatus) && <button type="button" className="button button-outline" onClick={() => reconcileOrder(order.id)} disabled={busy}>Check Razorpay again</button>}{order.paymentStatus === "captured" && <button type="button" className="button button-outline" onClick={() => refundOrder(order.id)} disabled={busy}>Retry full refund</button>}<details><summary>Payment reference</summary><p>Payment: {order.paymentStatus.replace("_", " ")} · Fulfilment: {order.status.replace("_", " ")}</p></details></div></section>}
               </article>;
             })}
