@@ -330,20 +330,18 @@ img { display: block; max-width: 100%; }
   text-transform: uppercase;
 }
 .wishlist-button {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 43px;
-  height: 43px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: var(--paper);
+  width: 100%;
+  min-height: 45px;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
   cursor: pointer;
+  font: 11px var(--serif);
+  transition: border-color .2s ease, color .2s ease, background .2s ease;
 }
-.wishlist-button.is-active { color: var(--berry); }
-.wishlist-button.is-active svg { fill: currentColor; }
+.wishlist-button:hover, .wishlist-button.is-active { border-color: var(--berry); color: var(--berry); }
+.wishlist-button:disabled { cursor: wait; opacity: .65; }
 .thumbnail-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-top: 10px; }
 .thumbnail-row button {
   aspect-ratio: 3 / 4;
@@ -440,21 +438,20 @@ footer a:hover, footer button:hover { color: white; }
   right: 24px;
   bottom: 24px;
   z-index: 35;
+  width: 52px;
+  height: 52px;
   min-height: 52px;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 18px;
-  border-radius: 28px;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
   background: #236e4a;
   color: white;
   box-shadow: 0 12px 35px rgba(35, 110, 74, .28);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .08em;
-  text-transform: uppercase;
 }
 .whatsapp-float svg { width: 23px; height: 23px; }
+.whatsapp-float span { display: none; }
 
 .overlay {
   position: fixed;
@@ -1309,7 +1306,6 @@ footer a:hover, footer button:hover { color: white; }
 .coupon-box input { min-width: 0; flex: 1; height: 40px; border: 1px solid var(--line); padding: 0 10px; background: white; font: 13px var(--serif); text-transform: uppercase; }
 .coupon-box button { border: 1px solid var(--ink); padding: 0 14px; background: var(--ink); color: white; font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
 .coupon-box small { display: block; margin-top: 8px; color: var(--aqua-deep); font-size: 10px; }
-.wishlist-button { width: 100%; min-height: 45px; border: 1px solid var(--line); background: white; color: var(--ink); cursor: pointer; font: 11px var(--serif); }
 .restock-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin: 14px 0; padding: 12px; background: #f5f1e9; }
 .restock-form label { display: grid; gap: 6px; }
 .restock-form label span { color: var(--ink-soft); font-size: 9px; }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Analytics from "./analytics";
+import WhatsAppFloat from "./components/whatsapp-float";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.SITE_URL ?? "https://classyapparelsbysana.com"),
@@ -35,7 +36,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}<Analytics /></body>
+      <body>{children}<WhatsAppFloat /><Analytics /></body>
     </html>
   );
 }

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { CatalogProduct } from "../../lib/catalog";
 import { readJsonResponse } from "../../lib/http";
-import { COUNTRIES, INDIA_STATES, countryName } from "../../lib/locations";
+import { COUNTRIES, INDIA_STATES } from "../../lib/locations";
 
 export type CheckoutSelection = { productId: string; size: string; quantity: number };
 type SavedAddress = { id: string; label: string; recipientName: string; phone: string; addressLine1: string; addressLine2: string; city: string; state: string; countryCode: string; postalCode: string; isDefault: boolean };
@@ -110,28 +110,6 @@ export default function CheckoutClient({
   const shippingPending = domestic && !hasConfirmedShipping && !manualShippingNeeded;
   const total = subtotal + shipping - discount;
   const itemCount = lines.reduce((sum, line) => sum + line.item.quantity, 0);
-  const whatsappText = encodeURIComponent([
-    "Hi Sana, I would like to complete this order.",
-    "",
-    "Order:",
-    ...lines.map((line) => `${line.item.quantity} × ${line.product.name} — size ${line.item.size}`),
-    "",
-    "Delivery details:",
-    `Name: ${form.name.trim() || "—"}`,
-    `Email: ${form.email.trim() || "—"}`,
-    `Phone: ${form.phone.trim() || "—"}`,
-    `Street address: ${form.addressLine1.trim() || "—"}`,
-    ...(form.addressLine2.trim() ? [`Area / landmark: ${form.addressLine2.trim()}`] : []),
-    `City: ${form.city.trim() || "—"}`,
-    `State / province: ${form.state.trim() || "—"}`,
-    `Country: ${countryName(form.countryCode)}`,
-    `${domestic ? "PIN code" : "Postal / ZIP code"}: ${form.postalCode.trim() || "—"}`,
-    "",
-    `Product total: ${money(subtotal - discount)}`,
-    (shippingNeedsQuote || manualShippingNeeded) ? "Shipping: Please confirm a manual quote." : `Order total: ${money(total)}`,
-    "Please help me confirm delivery and payment details.",
-  ].join("\n"));
-
   function update(name: keyof typeof form, value: string | number | null) {
     setForm((current) => ({ ...current, [name]: value }));
     if (name !== "email") setSelectedAddressId("");
@@ -323,8 +301,8 @@ export default function CheckoutClient({
             <label><span>{domestic ? "PIN code" : "Postal / ZIP code"}</span><input inputMode={domestic ? "numeric" : "text"} pattern={domestic ? "[1-9][0-9]{5}" : undefined} maxLength={domestic ? 6 : 16} value={form.postalCode} onChange={(event) => update("postalCode", domestic ? event.target.value.replace(/\D/g, "") : event.target.value.toUpperCase().replace(/[^A-Z0-9 /-]/g, ""))} onBlur={checkDestination} autoComplete="postal-code" placeholder={domestic ? "6-digit PIN" : "Use N/A if not applicable"} required />{deliveryNote && <small className="delivery-note">{deliveryNote}</small>}</label>
           </div>
           {initialCustomer && !selectedAddressId && <label className="checkout-save-address"><input type="checkbox" checked={saveAddress} onChange={(event) => setSaveAddress(event.target.checked)} /><span>Save this delivery address to my account for a faster next checkout.</span></label>}
-          {error && <div className={`checkout-error ${setupNeeded || manualShippingNeeded ? "setup" : ""}`} role="alert"><strong>{setupNeeded ? "Online payment setup is pending" : manualShippingNeeded ? "International shipping quote needed" : "We couldn’t continue"}</strong><p>{error}</p>{(setupNeeded || manualShippingNeeded) && <><a className="button whatsapp-checkout-button" href={`https://wa.me/917715910151?text=${whatsappText}`} target="_blank" rel="noreferrer">{manualShippingNeeded ? "Request shipping quote on WhatsApp" : "Complete this order on WhatsApp"} <span aria-hidden="true">→</span></a><small className="whatsapp-checkout-note">This opens WhatsApp with your order and complete delivery details.</small></>}</div>}
-          {manualShippingNeeded && !error && <div className="checkout-error setup"><strong>International delivery is available</strong><p>Shipping is arranged manually. Request the final courier quote before payment.</p><a className="button whatsapp-checkout-button" href={`https://wa.me/917715910151?text=${whatsappText}`} target="_blank" rel="noreferrer">Request shipping quote on WhatsApp <span aria-hidden="true">→</span></a></div>}
+          {error && <div className={`checkout-error ${setupNeeded || manualShippingNeeded ? "setup" : ""}`} role="alert"><strong>{setupNeeded ? "Online payment setup is pending" : manualShippingNeeded ? "International shipping quote needed" : "We couldn’t continue"}</strong><p>{error}</p>{(setupNeeded || manualShippingNeeded) && <><a className="button whatsapp-checkout-button" href="https://wa.me/917715910151" target="_blank" rel="noreferrer">{manualShippingNeeded ? "Request shipping quote on WhatsApp" : "Message Sana on WhatsApp"} <span aria-hidden="true">→</span></a><small className="whatsapp-checkout-note">WhatsApp will open directly so you can message Sana.</small></>}</div>}
+          {manualShippingNeeded && !error && <div className="checkout-error setup"><strong>International delivery is available</strong><p>Shipping is arranged manually. Request the final courier quote before payment.</p><a className="button whatsapp-checkout-button" href="https://wa.me/917715910151" target="_blank" rel="noreferrer">Request shipping quote on WhatsApp <span aria-hidden="true">→</span></a></div>}
           {!manualShippingNeeded && <button className="button button-dark pay-button" disabled={busy || !lines.length}>{busy ? "Checking delivery…" : shippingNeedsQuote ? "Check international delivery" : shippingPending ? "Continue to secure payment" : `Pay securely · ${money(total)}`}</button>}
           <p className="payment-note">{shippingNeedsQuote ? "International shipping is confirmed manually before payment." : shippingPending ? "Shipping is calculated from packed weight and destination before the payment window opens." : "Payment is processed by Razorpay. Card and UPI credentials never pass through or remain on this website."}</p>
         </form>
