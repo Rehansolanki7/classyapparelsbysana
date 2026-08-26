@@ -5,6 +5,7 @@ import { getDb } from "../../db";
 import { addresses } from "../../db/schema";
 import { getAllProducts } from "../../lib/catalog";
 import { currentUser } from "../../lib/auth";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -66,5 +67,24 @@ export default async function CheckoutPage({
   }
 
   const initialCustomer = user && !user.adminAuthenticated ? { name: user.name, email: user.email } : undefined;
+  if (!initialCustomer) {
+    const query = new URLSearchParams();
+    if (params.cart) query.set("cart", params.cart);
+    if (params.product) query.set("product", params.product);
+    if (params.size) query.set("size", params.size);
+    if (params.qty) query.set("qty", params.qty);
+    const returnTo = `/checkout${query.size ? `?${query.toString()}` : ""}`;
+    return <main className="checkout-shell checkout-success">
+      <Link className="checkout-wordmark" href="/"><span>Classy Apparels</span></Link>
+      <p className="kicker">Secure checkout</p>
+      <h1>Sign in before adding a delivery address.</h1>
+      <p>Create an account if you are new. This keeps your address, order history and payment confirmation safely linked to you.</p>
+      <div className="checkout-success-actions">
+        <Link className="button button-dark" href={`/login?return_to=${encodeURIComponent(returnTo)}`}>Sign in</Link>
+        <Link className="text-link" href={`/login?mode=signup&return_to=${encodeURIComponent(returnTo)}`}>Create an account</Link>
+        <Link className="text-link" href="/shop">Return to shop</Link>
+      </div>
+    </main>;
+  }
   return <CheckoutClient products={products} initialItems={selections} initialCustomer={initialCustomer} savedAddresses={savedAddresses} />;
 }

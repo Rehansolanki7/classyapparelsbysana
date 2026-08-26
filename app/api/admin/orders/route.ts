@@ -1,9 +1,9 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { orderItems, orders, productVariants } from "../../../../db/schema";
+import { orders } from "../../../../db/schema";
 import { rejectUnlessAdmin } from "../../../../lib/admin-auth";
 import { sendPaidOrderNotifications } from "../../../../lib/order-notifications";
-import { cancelPendingOrderAndRelease, finalizeCapturedOrder } from "../../../../lib/orders";
+import { cancelPendingOrderAndRelease, finalizeCapturedOrder, restoreOrderStockOnce } from "../../../../lib/orders";
 import { recordEvent } from "../../../../lib/logging";
 import { currentUser } from "../../../../lib/auth";
 
@@ -22,29 +22,6 @@ const transitions: Record<string, Set<string>> = {
 
 function clean(value: string | undefined | null, max: number) {
   return (value ?? "").trim().replace(/[<>]/g, "").slice(0, max);
-}
-
-function affected(result: unknown) {
-  return Number((result as Array<{ affectedRows?: number }>)[0]?.affectedRows ?? 0);
-}
-
-async function restoreOrderStockOnce(orderId: string) {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    const claimed = await tx
-      .update(orders)
-      .set({ stockRestoredAt: sql`CURRENT_TIMESTAMP`, updatedAt: sql`CURRENT_TIMESTAMP` })
-      .where(and(eq(orders.id, orderId), isNull(orders.stockRestoredAt)));
-    if (!affected(claimed)) return false;
-    const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
-    for (const item of items) {
-      await tx
-        .update(productVariants)
-        .set({ stock: sql`${productVariants.stock} + ${item.quantity}` })
-        .where(eq(productVariants.id, item.variantId));
-    }
-    return true;
-  });
 }
 
 export async function GET(request: Request) {
@@ -181,7 +158,7 @@ export async function POST(request: Request) {
   const reason = clean(order.refundReason || payload.reason, 300) || "Customer cancellation";
   await db
     .update(orders)
-    .set({ status: "refund_pending", refundReason: reason, updatedAt: sql`CURRENT_TIMESTAMP` })
+    .set({ status: "refund_pending", refundReason: reason, restockRequested: Boolean(payload.restock), updatedAt: sql`CURRENT_TIMESTAMP` })
     .where(eq(orders.id, order.id));
 
   let response: Response;

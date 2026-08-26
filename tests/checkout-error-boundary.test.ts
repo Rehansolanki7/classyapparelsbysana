@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { POST } from "../app/api/payments/create-order/route";
 
-test("checkout always returns JSON when an unexpected backend failure occurs", async () => {
+test("checkout requires an account before it accepts delivery data", async () => {
   const previous = {
     keyId: process.env.RAZORPAY_KEY_ID,
     keySecret: process.env.RAZORPAY_KEY_SECRET,
@@ -30,10 +30,10 @@ test("checkout always returns JSON when an unexpected backend failure occurs", a
         },
       }),
     }));
-    assert.equal(response.status, 500);
+    assert.equal(response.status, 401);
     assert.match(response.headers.get("content-type") ?? "", /application\/json/);
     const body = await response.json() as { error?: string };
-    assert.match(body.error ?? "", /temporarily unavailable/i);
+    assert.match(body.error ?? "", /sign in|create an account/i);
   } finally {
     console.error = previousConsoleError;
     if (previous.keyId === undefined) delete process.env.RAZORPAY_KEY_ID; else process.env.RAZORPAY_KEY_ID = previous.keyId;

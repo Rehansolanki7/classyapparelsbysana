@@ -31,7 +31,7 @@ Do these in the listed order:
 1. Test email login from a customer email address.
 2. Confirm product photos remain visible after a deployment.
 3. Add Razorpay **test** keys and complete one test UPI/card order.
-4. Set the Razorpay webhook to `https://classyapparelsbysana.com/api/payments/webhook`, subscribe to `payment.captured`, `payment.failed` and `refund.processed`, and verify the webhook secret.
+4. Set the Razorpay webhook to `https://classyapparelsbysana.com/api/payments/webhook`, subscribe to `payment.captured`, `order.paid`, `payment.failed` and `refund.processed`, and verify the webhook secret.
 5. Confirm the owner and customer receive the paid-order emails.
 6. Switch to Razorpay live keys only after all previous tests pass.
 

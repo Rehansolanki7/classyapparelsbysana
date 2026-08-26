@@ -184,9 +184,12 @@ export async function signSession(user: AppUser) {
 }
 
 export async function currentUser(): Promise<AppUser | null> {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token) return null;
   try {
+    // `cookies()` is request-scoped in Next. Treat a missing request context
+    // exactly like an anonymous visitor instead of turning a public route or
+    // a diagnostic invocation into a 500 response.
+    const token = (await cookies()).get(SESSION_COOKIE)?.value;
+    if (!token) return null;
     const { payload } = await jwtVerify(token, secret());
     if (typeof payload.sub !== "string" || typeof payload.email !== "string") return null;
     const email = normalizeEmail(payload.email);

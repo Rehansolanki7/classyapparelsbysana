@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { pincodeRules, shippingRateCards } from "../db/schema";
 import { normalizeCountryCode } from "./locations";
-import { SHIPPING_ZONES, type PincodeRule, type ShippingRateCard, type ShippingZone } from "./shipping-types";
+import { type PincodeRule, type ShippingRateCard, type ShippingZone } from "./shipping-types";
 
 export { SHIPPING_ZONES, type PincodeRule, type ShippingRateCard, type ShippingZone } from "./shipping-types";
 

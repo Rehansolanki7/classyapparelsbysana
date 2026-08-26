@@ -172,6 +172,8 @@ export const orders = mysqlTable("orders", {
   razorpaySignature: varchar("razorpay_signature", { length: 128 }),
   refundId: varchar("refund_id", { length: 80 }),
   refundReason: varchar("refund_reason", { length: 300 }),
+  /** Whether the administrator chose to return units after this refund settles. */
+  restockRequested: boolean("restock_requested").notNull().default(false),
   stockRestoredAt: datetime("stock_restored_at", { mode: "string" }),
   /** Preserves a record from retention cleanup while a dispute or legal matter is open. */
   legalHold: boolean("legal_hold").notNull().default(false),

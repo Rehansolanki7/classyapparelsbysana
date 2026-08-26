@@ -1,10 +1,11 @@
-import { and, eq, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { coupons, orderItems, orders, productVariants } from "../db/schema";
 
 export type CaptureResult = "captured" | "already_captured" | "refund_required" | "ignored" | "missing";
 
 class InventoryConflict extends Error {}
+class CouponConflict extends Error {}
 
 function affected(result: unknown) {
   return Number((result as Array<{ affectedRows?: number }>)[0]?.affectedRows ?? 0);
@@ -39,7 +40,7 @@ export async function finalizeCapturedOrder(orderId: string, paymentId: string, 
         .where(and(eq(orders.id, orderId), ne(orders.paymentStatus, "captured"), ne(orders.paymentStatus, "refunded")));
       if (!affected(claimed)) return "already_captured";
 
-      const hasActiveReservation = order.status === "pending_payment";
+      const hasActiveReservation = order.status === "pending_payment" || order.status === "payment_failed";
       for (const item of items) {
         const inventory = hasActiveReservation
           ? await tx
@@ -64,30 +65,57 @@ export async function finalizeCapturedOrder(orderId: string, paymentId: string, 
       }
 
       if (order.couponCode) {
-        await tx
+        const couponClaim = await tx
           .update(coupons)
           .set({ usageCount: sql`${coupons.usageCount} + 1`, updatedAt: sql`CURRENT_TIMESTAMP` })
-          .where(eq(coupons.code, order.couponCode));
+          .where(and(
+            eq(coupons.code, order.couponCode),
+            eq(coupons.active, true),
+            or(isNull(coupons.usageLimit), gt(coupons.usageLimit, coupons.usageCount)),
+          ));
+        // Coupon availability can change while a customer is at Razorpay. Do
+        // not fulfil a captured order at a discount that has already reached
+        // its limit; the entire transaction is rolled back and refunded below.
+        if (!affected(couponClaim)) throw new CouponConflict("Automatic refund required: coupon was no longer available at payment capture");
       }
       return "captured";
     });
   } catch (error) {
-    if (!(error instanceof InventoryConflict)) throw error;
+    if (!(error instanceof InventoryConflict) && !(error instanceof CouponConflict)) throw error;
 
     // The payment exists at Razorpay but inventory could not be fulfilled. Record it
     // durably so an administrator can issue an idempotent refund instead of losing it.
-    const marked = await db
-      .update(orders)
-      .set({
-        paymentStatus: "captured",
-        status: "refund_pending",
-        razorpayPaymentId: paymentId,
-        razorpaySignature: paymentSignature || undefined,
-        refundReason: "Automatic refund required: inventory unavailable at payment capture",
-        updatedAt: sql`CURRENT_TIMESTAMP`,
-      })
-      .where(and(eq(orders.id, orderId), ne(orders.paymentStatus, "captured"), ne(orders.paymentStatus, "refunded")));
-    if (affected(marked)) return "refund_required";
+    const marked = await db.transaction(async (tx) => {
+      const [currentOrder] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, orderId)).limit(1);
+      const claim = await tx
+        .update(orders)
+        .set({
+          paymentStatus: "captured",
+          status: "refund_pending",
+          razorpayPaymentId: paymentId,
+          razorpaySignature: paymentSignature || undefined,
+          refundReason: error.message || "Automatic refund required: inventory unavailable at payment capture",
+          updatedAt: sql`CURRENT_TIMESTAMP`,
+        })
+        .where(and(eq(orders.id, orderId), ne(orders.paymentStatus, "captured"), ne(orders.paymentStatus, "refunded")));
+      if (!affected(claim)) return false;
+
+      // The inventory transaction above rolled back, including conversion of
+      // this order's reservation into stock. Release that reservation now: a
+      // captured order waiting for a refund must never make a size look sold
+      // out forever.
+      if (currentOrder?.status === "pending_payment") {
+        const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+        for (const item of items) {
+          await tx
+            .update(productVariants)
+            .set({ reservedStock: sql`GREATEST(0, ${productVariants.reservedStock} - ${item.quantity})` })
+            .where(eq(productVariants.id, item.variantId));
+        }
+      }
+      return true;
+    });
+    if (marked) return "refund_required";
     const [current] = await db.select({ paymentStatus: orders.paymentStatus }).from(orders).where(eq(orders.id, orderId)).limit(1);
     return current?.paymentStatus === "captured" ? "already_captured" : "ignored";
   }
@@ -98,11 +126,16 @@ export async function markPaymentAttemptFailed(orderId: string, paymentId = "") 
   const updated = await db
     .update(orders)
     .set({
+      status: "payment_failed",
       paymentStatus: "failed",
       razorpayPaymentId: paymentId || undefined,
       updatedAt: sql`CURRENT_TIMESTAMP`,
     })
-    .where(and(eq(orders.id, orderId), eq(orders.status, "pending_payment"), ne(orders.paymentStatus, "captured")));
+    .where(and(
+      eq(orders.id, orderId),
+      or(eq(orders.status, "pending_payment"), eq(orders.status, "payment_failed")),
+      ne(orders.paymentStatus, "captured"),
+    ));
   return affected(updated) > 0;
 }
 
@@ -116,13 +149,37 @@ export async function cancelPendingOrderAndRelease(orderId: string, failed = fal
         paymentStatus: failed ? "failed" : undefined,
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
-      .where(and(eq(orders.id, orderId), eq(orders.status, "pending_payment"), ne(orders.paymentStatus, "captured")));
+      .where(and(
+        eq(orders.id, orderId),
+        or(eq(orders.status, "pending_payment"), eq(orders.status, "payment_failed")),
+        ne(orders.paymentStatus, "captured"),
+      ));
     if (!affected(claimed)) return false;
     const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
     for (const item of items) {
       await tx
         .update(productVariants)
         .set({ reservedStock: sql`GREATEST(0, ${productVariants.reservedStock} - ${item.quantity})` })
+        .where(eq(productVariants.id, item.variantId));
+    }
+    return true;
+  });
+}
+
+/** Returns sold units once, after a refund that was explicitly approved for restock. */
+export async function restoreOrderStockOnce(orderId: string) {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const claimed = await tx
+      .update(orders)
+      .set({ stockRestoredAt: sql`CURRENT_TIMESTAMP`, updatedAt: sql`CURRENT_TIMESTAMP` })
+      .where(and(eq(orders.id, orderId), isNull(orders.stockRestoredAt)));
+    if (!affected(claimed)) return false;
+    const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+    for (const item of items) {
+      await tx
+        .update(productVariants)
+        .set({ stock: sql`${productVariants.stock} + ${item.quantity}` })
         .where(eq(productVariants.id, item.variantId));
     }
     return true;
@@ -136,7 +193,7 @@ export async function releaseExpiredReservations(limit = 30) {
     .select({ id: orders.id })
     .from(orders)
     .where(and(
-      eq(orders.status, "pending_payment"),
+      or(eq(orders.status, "pending_payment"), eq(orders.status, "payment_failed")),
       or(eq(orders.paymentStatus, "pending"), eq(orders.paymentStatus, "failed"), eq(orders.paymentStatus, "verified")),
       lt(orders.expiresAt, now),
     ))

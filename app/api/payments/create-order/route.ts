@@ -9,6 +9,7 @@ import { businessConfiguration } from "../../../../lib/business";
 import { checkRateLimit, clientAddress, rateLimitResponse } from "../../../../lib/rate-limit";
 import { normalizeCountryCode } from "../../../../lib/locations";
 import { errorCode, recordEvent } from "../../../../lib/logging";
+import { currentUser } from "../../../../lib/auth";
 
 type CheckoutItemPayload = { productId?: string; size?: string; quantity?: number };
 type CheckoutPayload = {
@@ -107,6 +108,10 @@ async function createOrder(request: Request) {
   if (crossSite) return crossSite;
   const rate = checkRateLimit(`checkout:${clientAddress(request)}`, 10, 15 * 60 * 1000, 30 * 60 * 1000);
   if (!rate.allowed) return rateLimitResponse(rate.retryAfterSeconds);
+  const user = await currentUser();
+  if (!user || user.adminAuthenticated) {
+    return Response.json({ error: "Sign in or create an account before adding a delivery address and checking out.", code: "AUTHENTICATION_REQUIRED" }, { status: 401 });
+  }
   const keys = process.env;
   if (!keys.RAZORPAY_KEY_ID || !keys.RAZORPAY_KEY_SECRET) return Response.json({ error: "Online payments are not activated yet", code: "PAYMENTS_NOT_CONFIGURED" }, { status: 503 });
   if (process.env.NODE_ENV === "production" && !businessConfiguration().ready) {
@@ -121,6 +126,9 @@ async function createOrder(request: Request) {
   }
   const validated = validateCustomer(payload);
   if ("error" in validated) return Response.json({ error: validated.error }, { status: 400 });
+  if (validated.customer.email !== user.email) {
+    return Response.json({ error: "Use the email address on your signed-in account for this order." }, { status: 400 });
+  }
   const normalizedItems = normalizeItems(payload);
   if ("error" in normalizedItems) return Response.json({ error: normalizedItems.error }, { status: 400 });
 
@@ -166,7 +174,10 @@ async function createOrder(request: Request) {
   const shippingPaise = serviceability.shippingPaise;
   const totalPaise = subtotalPaise + shippingPaise - coupon.discountPaise;
   const localOrderId = crypto.randomUUID();
-  const orderNumber = `CAS${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 90 + 10)}`;
+  // The old two-digit suffix allowed collisions during a busy launch minute.
+  // Fourteen numeric digits remain easy to quote to customer support while
+  // making a collision astronomically unlikely before the DB uniqueness check.
+  const orderNumber = `CAS${Date.now().toString().slice(-8)}${crypto.getRandomValues(new Uint32Array(1))[0].toString().padStart(10, "0").slice(-6)}`;
   const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
 
   try {

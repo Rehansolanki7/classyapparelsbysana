@@ -114,3 +114,44 @@ The attached source did not have sufficiently safe transaction boundaries around
 Razorpay integration reference: <https://razorpay.com/docs/developer-tools/integrations/standard-checkout/>  
 Razorpay idempotent refund reference: <https://razorpay.com/docs/api/refunds/normal-refunds-idempotent/>  
 India Consumer Protection (E-Commerce) Rules: <https://consumeraffairs.gov.in/public/upload/files/E%20commerce%20rules_1732703966.pdf>
+
+---
+
+## Payment lifecycle follow-up — 26 August 2026
+
+Verdict: **no-go for public payments until the live test matrix and operational checks below are completed.** The source is materially safer after the fixes in this section, but source review cannot prove Razorpay dashboard setup, deployed webhook reachability, capture settings, delivery email, database backup/restore or mobile checkout behaviour.
+
+### Fixed in this follow-up
+
+| Finding | Risk | Resolution |
+| --- | --- | --- |
+| Closing Razorpay left inventory reserved until expiry. | A cancelled checkout could make a size unavailable for up to 20 minutes. | The Razorpay dismissal callback calls an authenticated cancellation endpoint that atomically marks the local order cancelled and releases its reservation. Script/window-load failure uses the same release path. |
+| A Razorpay `payment.failed` event was presented as a pending order. | Confusing order history and inaccurate customer tracking. | The order now changes to `payment_failed`, while retaining its reservation so Razorpay’s permitted retry on the same payment order can still succeed. |
+| Retry or late capture after a failed attempt could miss the existing reservation. | Reserved units could be stranded or incorrectly treated as unreserved. | Captured finalization now converts reservations for both `pending_payment` and `payment_failed` orders; expiry/cancellation handles both states. |
+| Checkout permitted anonymous delivery-address entry and payment order creation. | Did not match the required account-first customer flow; orders were not reliably linked to an account. | Checkout shows sign-in/create-account before the address form. Server-side create, payment verification and cancellation endpoints also enforce account ownership and the account email. |
+| Webhook capture handling did not bind its amount/currency before inventory finalization. | A signed but unexpected event could affect a local order. | Signed events must now also match the stored Razorpay order, local amount and INR currency. `order.paid` is supported alongside `payment.captured`. |
+| Coupon limit could change during checkout without an atomic capture-time claim. | A limited discount could be granted more times than intended. | Coupon usage is now incremented only by a conditional transaction update at capture. If the limit has been reached, fulfilment rolls back, the reservation releases, and a full refund is requested. |
+| A captured order that could not be fulfilled left its reservation stranded and only said a refund was automatic. | Stock could remain blocked; refund depended on manual work despite customer messaging. | The rollback case releases the reservation and makes a full Razorpay refund request after the response, using Razorpay’s stable `X-Refund-Idempotency` header. Failures remain visible as `refund_pending` for admin retry. |
+| An async `refund.processed` webhook did not restore units chosen for “Refund & restock”. | A successful customer refund could permanently reduce sellable stock. | Migration `0006_refund_restock` persists restock intent; the webhook restores stock once through `stock_restored_at`. |
+| Ten-digit order numbers had only a two-digit random suffix. | Low but real order-number uniqueness collision during busy checkout. | New orders use a fourteen-digit `CAS` number; tracking accepts historic ten-digit and new fourteen-digit formats. |
+
+### Razorpay implementation check
+
+The source now follows the core Standard Checkout requirements: a server-created Razorpay Order is passed to checkout, the browser response is server-side HMAC verified using the local order ID, the payment is fetched from Razorpay before customer success is shown, and fulfilment waits for `captured`. Webhook HMAC uses the raw request body. `payment.captured`, `order.paid`, `payment.failed` and `refund.processed` should be configured in the Razorpay Dashboard. See Razorpay’s [Standard Checkout guide](https://razorpay.com/docs/developer-tools/integrations/standard-checkout/), [payment-event reference](https://razorpay.com/docs/webhooks/payments/) and [idempotent refund API](https://razorpay.com/docs/api/refunds/normal-refunds-idempotent/).
+
+### Verification performed on this source
+
+- `npm run test:unit`: 10/10 tests passed.
+- `npx tsc --noEmit`: passed.
+- `npm run lint`: passed with no errors. Existing image-optimisation advisory warnings remain.
+- `npm audit --omit=dev --offline`: 0 production vulnerabilities found.
+- Environment variable presence was checked without reading values; all required local payment, database, SMTP, legal, authentication and upload settings are populated. This does **not** verify they are correct in Hostinger or in Razorpay test/live mode.
+
+### Required before the public go-live decision
+
+1. Deploy this migration and source to staging, then verify the `0006_refund_restock` migration journal entry.
+2. In Razorpay **test mode**, test: success; modal close/cancel; failed payment then retry; payment with browser closed; delayed capture; duplicate `payment.captured`/`order.paid`; invalid signature; sold-out capture; coupon-limit race; immediate and asynchronous refund with restock.
+3. Confirm Dashboard auto-capture is enabled for Orders API payments and that the public HTTPS webhook responds correctly in **live mode**. Subscribe to the four events above; monitor failed deliveries.
+4. Verify one low-value live payment and refund end-to-end: one database order, one stock decrement, emails, account history, tracking, refund ID and exactly one restock.
+5. Add a durable queue/alerting mechanism for webhook/refund/email failures. The current post-response automatic-refund attempt is idempotent and leaves `refund_pending` for Admin retry, but it is not a durable background worker.
+6. Complete the existing legal, shipping-price, backup-restore and physical mobile-device checks in the launch checklist.

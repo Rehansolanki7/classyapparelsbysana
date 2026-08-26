@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
   const orderNumber = (payload.orderNumber ?? "").trim().toUpperCase().slice(0, 32);
   const email = (payload.email ?? "").trim().toLowerCase().slice(0, 180);
-  if (!/^CAS\d{10}$/.test(orderNumber) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!/^CAS\d{10,16}$/.test(orderNumber) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return noStore({ error: "Enter the order number and email used at checkout" }, { status: 400 });
   }
 

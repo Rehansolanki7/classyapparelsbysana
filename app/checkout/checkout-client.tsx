@@ -171,6 +171,19 @@ export default function CheckoutClient({
     }
   }
 
+  async function cancelCheckout(localOrderId: string) {
+    try {
+      await fetch("/api/payments/cancel", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ localOrderId }),
+      });
+    } catch {
+      // The reservation has a server-side expiry as a backstop. Do not mask a
+      // customer closing the payment window with an unrelated network error.
+    }
+  }
+
   async function checkDestination() {
     const postalReady = domestic ? /^[1-9]\d{5}$/.test(form.postalCode) : form.postalCode.trim().length >= 2;
     if (!postalReady) { setDeliveryNote(""); return; }
@@ -224,6 +237,8 @@ export default function CheckoutClient({
     setSetupNeeded(false);
     setManualShippingNeeded(false);
     setPackedWeightMissing(false);
+    let localOrderId = "";
+    let paymentWindowOpened = false;
     try {
       const orderResponse = await fetch("/api/payments/create-order", {
         method: "POST",
@@ -254,7 +269,8 @@ export default function CheckoutClient({
       if (typeof order.discountPaise === "number") setDiscount(order.discountPaise / 100);
       const loaded = await loadRazorpay();
       if (!loaded || !window.Razorpay || !order.keyId || !order.razorpayOrderId || !order.localOrderId || !order.amount || !order.currency) throw new Error("Secure payment window could not load. Please try again.");
-      const localOrderId = order.localOrderId;
+      localOrderId = order.localOrderId;
+      let paymentResultReceived = false;
       const gateway = new window.Razorpay({
         key: order.keyId,
         amount: order.amount,
@@ -266,8 +282,20 @@ export default function CheckoutClient({
         theme: { color: "#5d9798" },
         timeout: 1200,
         retry: { enabled: true, max_count: 4 },
-        modal: { confirm_close: true, ondismiss: () => setBusy(false) },
+        modal: {
+          confirm_close: true,
+          ondismiss: () => {
+            // A successful handler closes the modal too. Only an actual
+            // customer dismissal releases the short inventory reservation.
+            if (!paymentResultReceived) {
+              void cancelCheckout(localOrderId);
+              setError("Payment was cancelled. Your items are available again.");
+            }
+            setBusy(false);
+          },
+        },
         handler: async (result) => {
+          paymentResultReceived = true;
           try {
             const verifyResponse = await fetch("/api/payments/verify", {
               method: "POST",
@@ -289,7 +317,11 @@ export default function CheckoutClient({
         },
       });
       gateway.open();
+      paymentWindowOpened = true;
     } catch (caught) {
+      // If checkout could not open (for example, blocked Razorpay script or a
+      // transient browser error), do not keep the customer's stock reserved.
+      if (localOrderId && !paymentWindowOpened) void cancelCheckout(localOrderId);
       setError(caught instanceof Error ? caught.message : "Something went wrong");
       setBusy(false);
     }

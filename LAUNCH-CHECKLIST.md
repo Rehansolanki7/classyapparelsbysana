@@ -24,8 +24,9 @@ Use this list in order. A tick only means the item is complete once it has been 
 - [ ] Test a customer sign-in with a non-owner email.
 - [ ] Set Hostinger mailbox SMTP details and confirm sign-in and order emails arrive at `shop@classyapparelsbysana.com`.
 - [ ] Create a writable `uploads` folder beside `public_html`, set `UPLOAD_DIR` to its absolute path and `UPLOAD_PUBLIC_PATH=/media`, then test one product image upload after a redeploy.
-- [ ] Create a Razorpay account, use test keys first, then configure the production webhook for `payment.captured`, `payment.failed` and `refund.processed` before adding live keys.
-- [ ] Run controlled test-mode cases: successful payment, failed attempt then retry, duplicate webhook delivery, checkout timeout, sold-out conflict, expired reservation, full refund and repeated refund request.
+- [ ] Create a Razorpay account, use test keys first, then configure the production webhook for `payment.captured`, `order.paid`, `payment.failed` and `refund.processed` before adding live keys.
+- [ ] Run controlled test-mode cases: successful payment, close/cancel before payment (stock returns immediately), failed attempt then retry, duplicate webhook delivery, checkout timeout, sold-out conflict, expired reservation, full refund and repeated refund request.
+- [ ] Confirm a signed-out shopper is asked to sign in or create an account before entering a delivery address; confirm a saved checkout address and order are visible in that account afterwards.
 - [ ] Make one low-value live payment and refund it. Verify the MySQL order/line items/payment IDs, single stock decrement, owner email, customer email, account history and guest tracking.
 - [ ] Review the ₹99 domestic fee/free-shipping threshold. Optional `pincode_rules` rows may override the fee or estimate, but cannot block a valid Indian PIN while nationwide manual delivery is enabled.
 - [ ] For online international payment, set a reviewed flat `INTERNATIONAL_SHIPPING_PAISE`; otherwise international customers are safely routed to WhatsApp for a manual courier quote.

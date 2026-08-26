@@ -6,10 +6,14 @@ import { finalizeCapturedOrder } from "../../../../lib/orders";
 import { sendPaidOrderNotifications } from "../../../../lib/order-notifications";
 import { constantTimeEqual, hmacSha256Hex, rejectCrossSite } from "../../../../lib/security";
 import { recordEvent } from "../../../../lib/logging";
+import { currentUser } from "../../../../lib/auth";
+import { attemptAutomaticRefund } from "../../../../lib/refunds";
 
 export async function POST(request: Request) {
   const crossSite = rejectCrossSite(request);
   if (crossSite) return crossSite;
+  const user = await currentUser();
+  if (!user || user.adminAuthenticated) return Response.json({ error: "Sign in to confirm this payment." }, { status: 401 });
   const keys = process.env;
   if (!keys.RAZORPAY_KEY_ID || !keys.RAZORPAY_KEY_SECRET) return Response.json({ error: "Payments are not configured" }, { status: 503 });
   let payload: {
@@ -27,6 +31,7 @@ export async function POST(request: Request) {
   const db = getDb();
   const [order] = await db.select().from(orders).where(eq(orders.id, payload.localOrderId)).limit(1);
   if (!order?.razorpayOrderId || order.razorpayOrderId !== payload.razorpay_order_id) return Response.json({ error: "Payment does not match this order" }, { status: 400 });
+  if (order.email !== user.email) return Response.json({ error: "Payment does not belong to this account." }, { status: 403 });
 
   const expected = await hmacSha256Hex(keys.RAZORPAY_KEY_SECRET, `${order.razorpayOrderId}|${payload.razorpay_payment_id}`);
   if (!constantTimeEqual(expected, payload.razorpay_signature)) {
@@ -52,12 +57,13 @@ export async function POST(request: Request) {
     if (result === "captured") after(() => sendPaidOrderNotifications(order.id));
     if (result === "refund_required") {
       await recordEvent({ severity: "warning", eventType: "checkout.payment_captured_refund_required", entityType: "order", entityId: order.id });
+      after(() => attemptAutomaticRefund(order.id));
       return Response.json({
         ok: true,
         captured: true,
         refundPending: true,
         orderNumber: order.orderNumber,
-        message: "Your payment was received, but the item became unavailable. We will refund it automatically.",
+        message: "Your payment was received, but the item became unavailable. Your full refund is now being started automatically.",
       });
     }
     await recordEvent({ severity: "info", eventType: "checkout.payment_captured", entityType: "order", entityId: order.id });
