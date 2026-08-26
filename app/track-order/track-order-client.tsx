@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { countryName } from "../../lib/locations";
+import { whatsappHref } from "../../lib/whatsapp";
 
 type TrackedOrder = {
   orderNumber: string;
@@ -77,7 +78,7 @@ export default function TrackOrderClient({ initialOrderNumber }: { initialOrderN
           <label><span>Checkout email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required /></label>
           <button className="button button-dark" disabled={busy}>{busy ? "Finding your order…" : "Show order status"}</button>
         </form>
-        {error && <div className="tracking-error" role="alert">{error}<a href="https://wa.me/917715910151" target="_blank" rel="noreferrer">Ask Sana for help</a></div>}
+        {error && <div className="tracking-error" role="alert">{error}<a href={whatsappHref(`Hi Sana, I need help tracking order ${orderNumber || "my order"}.`)} target="_blank" rel="noreferrer">Ask Sana for help</a></div>}
       </section>
 
       {order && <section className="tracking-result" aria-live="polite">

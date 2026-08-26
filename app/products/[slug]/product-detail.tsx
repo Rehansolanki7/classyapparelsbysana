@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CatalogProduct } from "../../../lib/catalog";
+import WhatsAppFloat from "../../components/whatsapp-float";
 
 function money(value: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value);
@@ -22,6 +23,7 @@ export default function ProductDetail({ product }: { product: CatalogProduct }) 
   const [restockNotice, setRestockNotice] = useState("");
   const selectedStock = product.variants.find((variant) => variant.size === size)?.stock ?? 0;
   const images = product.images.length ? product.images : ["/products/sea-mist-01.webp"];
+  const whatsappMessage = `Hi Sana, I’m interested in the ${product.name}${product.color ? ` in ${product.color}` : ""}${size ? `, size ${size}` : ""}${quantity > 1 ? `, quantity ${quantity}` : ""}. Could you help me with sizing and availability?`;
   useEffect(() => {
     let active = true;
     fetch("/api/wishlist")
@@ -80,6 +82,7 @@ export default function ProductDetail({ product }: { product: CatalogProduct }) 
         </section>
       </div>
       <section className="product-page-story"><p className="kicker">Look closer</p><h2>Real photos. Every useful angle.</h2><p>Phone-shot details stay uncropped on a softly balanced canvas, so the colour, length and finishing remain easy to judge.</p></section>
+      <WhatsAppFloat message={whatsappMessage} />
     </main>
   );
 }

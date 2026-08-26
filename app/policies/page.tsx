@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { businessConfiguration } from "../../lib/business";
+import { whatsappHref } from "../../lib/whatsapp";
 
 export const metadata: Metadata = {
   title: "Shop policies",
@@ -9,9 +10,10 @@ export const metadata: Metadata = {
 
 export default function PoliciesPage() {
   const business = businessConfiguration();
+  const policyMessage = "Hi Sana, I have a question about the website policies.";
   return (
     <main className="policies-page">
-      <header className="product-page-header"><Link href="/">← Home</Link><Link className="checkout-wordmark" href="/"><span>Classy Apparels</span></Link><a href="https://wa.me/917715910151" target="_blank" rel="noreferrer">Questions?</a></header>
+      <header className="product-page-header"><Link href="/">← Home</Link><Link className="checkout-wordmark" href="/"><span>Classy Apparels</span></Link><a href={whatsappHref(policyMessage)} target="_blank" rel="noreferrer">Questions?</a></header>
       <div className="policies-layout">
         <aside><p className="kicker">Shop with clarity</p><h1>Policies, in plain language.</h1><nav><a href="#shipping">Shipping</a><a href="#exchange">Returns &amp; exchange</a><a href="#privacy">Privacy</a><a href="#terms">Shopping terms</a><a href="#contact">Business contact</a></nav></aside>
         <article>
@@ -20,7 +22,7 @@ export default function PoliciesPage() {
           <section id="privacy"><span>03</span><h2>Privacy</h2><p>We collect account, contact, delivery and order details to process purchases, provide support, prevent misuse and meet legal or accounting requirements. Payment credentials are entered into Razorpay’s secure checkout and are not stored by this website. We share only the information needed with Razorpay for payment, selected courier partners for delivery, and our email provider for account and order messages.</p><p>Paid orders, order items, payment references, refunds and delivery records are retained for seven financial years, or longer only for a dispute, investigation or legal hold. Pending or failed checkout records are deleted after 30 days. Account profile, saved addresses, wishlist and restock requests are kept until you request deletion or the account has been inactive for 24 months; we email a reminder 30 days before inactive-account cleanup. Used or expired one-time codes are deleted within 24 hours and minimal security/error events are retained for 90 days.</p><p>Signed-in customers can correct account details, download a data export, or make a deletion request in the Privacy Centre under My account. Deletion requires a recent email verification. We remove non-order account data, sign the account out, and block marketing use within our 30-day service target; records we must retain for accounting or law remain protected for that purpose. For help with a privacy request, contact customer care or the grievance contact below.</p></section>
           <section id="terms"><span>04</span><h2>Shopping terms</h2><p>Product colours can vary slightly between phone cameras, lighting and screen settings. Measurements are provided in inches and should be checked before purchase. An order is confirmed only after successful payment verification and stock confirmation. If an item becomes unavailable after payment, we will contact you and arrange a refund to the original payment method.</p><p>Classy Apparels by Sana may cancel suspicious, duplicate or incorrectly priced orders and will refund any captured payment for a cancelled order.</p></section>
           <section id="contact"><span>05</span><h2>Business, customer care &amp; grievance contact</h2>{business.ready ? <address><strong>{business.legalName}</strong><br />{business.address}<br />Customer care: <a href={`mailto:${business.customerCareEmail}`}>{business.customerCareEmail}</a> · <a href={`tel:${business.customerCarePhone.replace(/\s/g, "")}`}>{business.customerCarePhone}</a><br />Grievance officer: {business.grievanceOfficer}</address> : <p>The verified legal name, business address, grievance officer and return-shipping responsibility must be published here before checkout is enabled.</p>}</section>
-          <div className="policy-contact"><p className="kicker">Still unsure?</p><h2>Talk to Sana before you order.</h2><a className="button button-dark" href="https://wa.me/917715910151" target="_blank" rel="noreferrer">Ask on WhatsApp</a></div>
+          <div className="policy-contact"><p className="kicker">Still unsure?</p><h2>Talk to Sana before you order.</h2><a className="button button-dark" href={whatsappHref(policyMessage)} target="_blank" rel="noreferrer">Ask on WhatsApp</a></div>
         </article>
       </div>
     </main>

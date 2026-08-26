@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CatalogProduct } from "../lib/catalog";
 import type { StorefrontSettings } from "../lib/storefront-settings";
+import WhatsAppFloat from "./components/whatsapp-float";
+import { whatsappHref } from "../lib/whatsapp";
 
 type BagItem = { productId: string; size: string; quantity: number };
 const BAG_KEY = "classy-apparels-bag-v1";
@@ -116,6 +118,9 @@ export default function Storefront({ product, products, settings }: { product: C
   const bagCount = bagLines.reduce((sum, line) => sum + line.item.quantity, 0);
   const bagSubtotal = bagLines.reduce((sum, line) => sum + line.product.price * line.item.quantity, 0);
   const checkoutHref = `/checkout?cart=${encodeURIComponent(JSON.stringify(bag))}`;
+  const productMessage = `Hi Sana, I’m interested in the ${product.name}${product.color ? ` in ${product.color}` : ""}${selectedSize ? `, size ${selectedSize}` : ""}. Could you help me with sizing and availability?`;
+  const sizeHelpMessage = `Hi Sana, I need help choosing a size for the ${product.name}${selectedSize ? ` in size ${selectedSize}` : ""}.`;
+  const newsletterMessage = "Hi Sana, please add me to the Classy Apparels by Sana drop updates.";
 
   function saveBag(next: BagItem[]) {
     const serialized = JSON.stringify(next.slice(0, 10));
@@ -224,7 +229,7 @@ export default function Storefront({ product, products, settings }: { product: C
           })}</div>
           {notice && <p className="field-notice" role="alert">{notice}</p>}
           <button className="button button-dark add-button" onClick={addToBag} disabled={!hydrated}>Add to bag <span>{money(product.price)}</span></button>
-          <a className="button whatsapp-product-button" href="https://wa.me/917715910151" target="_blank" rel="noreferrer">Ask Sana on WhatsApp</a>
+          <a className="button whatsapp-product-button" href={whatsappHref(productMessage)} target="_blank" rel="noreferrer">Ask Sana on WhatsApp</a>
           <details open><summary>Details &amp; care <Icon name="chevron" size={17} /></summary><p>{product.care || "Follow the care instructions on the garment label."} Product colours can vary slightly across phone and screen settings.</p></details>
           <details><summary>Delivery &amp; exchanges <Icon name="chevron" size={17} /></summary><p>Dispatch is typically planned within 2–4 working days. Unworn pieces with tags can be requested for a size exchange within 3 days of delivery.</p></details>
         </div>
@@ -244,16 +249,18 @@ export default function Storefront({ product, products, settings }: { product: C
 
       <section className="newsletter">
         <p className="kicker">The Sana circle</p><h2>{settings.newsletterHeading}</h2><p>{settings.newsletterBody}</p>
-        <a className="newsletter-join" href="https://wa.me/917715910151" target="_blank" rel="noreferrer">Join on WhatsApp <Icon name="arrow" /></a>
+        <a className="newsletter-join" href={whatsappHref(newsletterMessage)} target="_blank" rel="noreferrer">Join on WhatsApp <Icon name="arrow" /></a>
       </section>
 
       <footer>
         <div className="footer-brand"><span className="wordmark-main">Classy Apparels</span><p>Thoughtful everyday elegance, selected by Sana in small drops.</p></div>
         <div><h3>Shop</h3><a href="/shop">Shop</a><button onClick={() => setSizeOpen(true)}>Size guide</button></div>
-        <div><h3>Help</h3><a href="/account">My orders</a><a href="/track-order">Track order</a><a href="/policies#shipping">Shipping</a><a href="/policies#exchange">Exchange policy</a><a href="https://wa.me/917715910151" target="_blank" rel="noreferrer">WhatsApp us</a></div>
+        <div><h3>Help</h3><a href="/account">My orders</a><a href="/track-order">Track order</a><a href="/policies#shipping">Shipping</a><a href="/policies#exchange">Exchange policy</a><a href={whatsappHref("Hi Sana, I need help with an order or shopping question.")} target="_blank" rel="noreferrer">WhatsApp us</a></div>
         <div><h3>Follow</h3><a href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer">Instagram</a><a href="/admin">Admin</a></div>
         <div className="footer-bottom"><span>© 2026 Classy Apparels by Sana</span><span>Made with care in India</span></div>
       </footer>
+
+      <WhatsAppFloat message={productMessage} />
 
       <div className={`overlay ${menuOpen || cartOpen || sizeOpen || searchOpen ? "show" : ""}`} onClick={() => { setMenuOpen(false); setCartOpen(false); setSizeOpen(false); setSearchOpen(false); }} />
 
@@ -278,7 +285,7 @@ export default function Storefront({ product, products, settings }: { product: C
 
       <aside className={`side-panel size-panel ${sizeOpen ? "open" : ""}`} aria-hidden={!sizeOpen}>
         <div className="panel-header"><span>Find your size</span><button className="icon-button" onClick={() => setSizeOpen(false)} aria-label="Close size guide"><Icon name="close" /></button></div>
-        <div className="size-guide-content"><p>Body measurements in inches. For a relaxed fit, choose the larger size when you fall between two measurements.</p><table><thead><tr><th>Size</th><th>Bust</th><th>Waist</th><th>Hip</th></tr></thead><tbody>{sizeRows.map((row) => <tr key={row[0]}>{row.map((value, index) => <td key={value}>{index === 0 ? <strong>{value}</strong> : value}</td>)}</tr>)}</tbody></table><div className="measure-note"><strong>How to measure</strong><p>Keep the tape comfortably level around the fullest part of your bust and hips, and around your natural waist.</p></div><a className="button whatsapp-product-button" href="https://wa.me/917715910151" target="_blank" rel="noreferrer">Need help? Ask Sana</a></div>
+        <div className="size-guide-content"><p>Body measurements in inches. For a relaxed fit, choose the larger size when you fall between two measurements.</p><table><thead><tr><th>Size</th><th>Bust</th><th>Waist</th><th>Hip</th></tr></thead><tbody>{sizeRows.map((row) => <tr key={row[0]}>{row.map((value, index) => <td key={value}>{index === 0 ? <strong>{value}</strong> : value}</td>)}</tr>)}</tbody></table><div className="measure-note"><strong>How to measure</strong><p>Keep the tape comfortably level around the fullest part of your bust and hips, and around your natural waist.</p></div><a className="button whatsapp-product-button" href={whatsappHref(sizeHelpMessage)} target="_blank" rel="noreferrer">Need help? Ask Sana</a></div>
       </aside>
 
       <div className={`search-overlay ${searchOpen ? "open" : ""}`} aria-hidden={!searchOpen}>
