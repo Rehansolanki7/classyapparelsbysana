@@ -5,6 +5,8 @@ import Link from "next/link";
 import type { AppUser } from "../../lib/auth";
 import type { CatalogProduct } from "../../lib/catalog";
 import { countryName } from "../../lib/locations";
+import type { StorefrontSettings } from "../../lib/storefront-settings";
+import { SHIPPING_ZONES, type PincodeRule, type ShippingRateCard, type ShippingZone } from "../../lib/shipping-types";
 
 type ImportItem = {
   id: number;
@@ -34,6 +36,7 @@ type OrderItem = {
   courierName: string;
   trackingNumber: string;
   trackingUrl: string;
+  legalHold: boolean;
 };
 
 type CouponItem = {
@@ -66,7 +69,17 @@ type CouponDraft = {
   usageCount: number;
 };
 
-type Tab = "overview" | "products" | "instagram" | "orders" | "coupons" | "settings";
+type SystemEvent = {
+  id: number;
+  severity: "info" | "warning" | "error" | "security";
+  eventType: string;
+  entityType: string | null;
+  entityId: string | null;
+  detail: string;
+  createdAt: string;
+};
+
+type Tab = "overview" | "products" | "instagram" | "orders" | "coupons" | "shipping" | "settings";
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2400;
@@ -181,6 +194,9 @@ export default function AdminDashboard({
   initialCoupons,
   signOutPath,
   notificationConfigured,
+  initialStorefrontSettings,
+  initialEvents,
+  initialShippingConfiguration,
 }: {
   user: AppUser;
   initialProducts: CatalogProduct[];
@@ -189,6 +205,9 @@ export default function AdminDashboard({
   initialCoupons: CouponItem[];
   signOutPath: string;
   notificationConfigured: boolean;
+  initialStorefrontSettings: StorefrontSettings;
+  initialEvents: SystemEvent[];
+  initialShippingConfiguration: { cards: ShippingRateCard[]; pincodeRules: PincodeRule[]; handlingPaise: number };
 }) {
   const [tab, setTab] = useState<Tab>("overview");
   const [products, setProducts] = useState(initialProducts);
@@ -201,8 +220,13 @@ export default function AdminDashboard({
   const [couponDraft, setCouponDraft] = useState<CouponDraft>(() => initialCoupons[0] ? couponToDraft(initialCoupons[0]) : emptyCouponDraft());
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [storefrontSettings, setStorefrontSettings] = useState(initialStorefrontSettings);
+  const [shippingCards, setShippingCards] = useState(initialShippingConfiguration.cards);
+  const [pinRules, setPinRules] = useState(initialShippingConfiguration.pincodeRules);
+  const [shippingPreview, setShippingPreview] = useState<{ zone: ShippingZone; weightGrams: number }>({ zone: "maharashtra", weightGrams: 500 });
   const pendingImports = imports.filter((item) => item.status === "pending");
   const totalStock = products.reduce((sum, product) => sum + product.variants.reduce((variantSum, variant) => variantSum + variant.stock, 0), 0);
+  const productsMissingShippingWeight = products.filter((product) => product.status === "active" && product.packedWeightGrams <= 0).length;
   const paidOrders = orders.filter((order) => order.paymentStatus === "captured");
   const revenue = paidOrders.reduce((sum, order) => sum + order.totalPaise / 100, 0);
   const selected = useMemo(() => products.find((product) => product.id === selectedId) ?? null, [products, selectedId]);
@@ -433,6 +457,15 @@ export default function AdminDashboard({
     setBusy(false);
   }
 
+  async function changeLegalHold(order: OrderItem, legalHold: boolean) {
+    setBusy(true); setNotice("");
+    const response = await fetch("/api/admin/orders", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...order, legalHold }) });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) setNotice(result.error || "Could not update the legal-hold setting.");
+    else { setOrders((current) => current.map((item) => item.id === order.id ? { ...item, legalHold } : item)); setNotice(legalHold ? "Legal hold enabled. Retention cleanup will skip this order." : "Legal hold removed."); }
+    setBusy(false);
+  }
+
   async function resendOrderAlert(id: string) {
     setBusy(true);
     setNotice("");
@@ -468,13 +501,40 @@ export default function AdminDashboard({
     setBusy(false);
   }
 
+  async function saveStorefront() {
+    setBusy(true); setNotice("");
+    try {
+      const response = await fetch("/api/admin/storefront", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(storefrontSettings) });
+      const result = await response.json() as { error?: string; settings?: StorefrontSettings };
+      if (!response.ok) setNotice(result.error || "Could not save homepage content.");
+      else { if (result.settings) setStorefrontSettings(result.settings); setNotice("Homepage content is live. Open the store to review it."); }
+    } catch {
+      setNotice("Could not save homepage content. Please try again.");
+    }
+    setBusy(false);
+  }
+
+  async function saveShipping() {
+    setBusy(true); setNotice("");
+    try {
+      const response = await fetch("/api/admin/shipping", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ cards: shippingCards, pincodeRules: pinRules }) });
+      const result = await response.json() as { error?: string; cards?: ShippingRateCard[]; pincodeRules?: PincodeRule[] };
+      if (!response.ok) setNotice(result.error || "Could not publish shipping rates.");
+      else { setShippingCards(result.cards ?? shippingCards); setPinRules(result.pincodeRules ?? pinRules); setNotice("Shipping rates are live. Customer charges include the ₹50 handling and packing fee once per shipment."); }
+    } catch { setNotice("Could not publish shipping rates. Please try again."); }
+    setBusy(false);
+  }
+
+  const previewCard = shippingCards.filter((card) => card.zone === shippingPreview.zone && card.serviceable && card.weightLimitGrams >= shippingPreview.weightGrams).sort((left, right) => left.weightLimitGrams - right.weightLimitGrams)[0];
+
   const nav: Array<{ id: Tab; label: string; count?: number }> = [
     { id: "overview", label: "Overview" },
     { id: "products", label: "Products", count: products.length },
     { id: "instagram", label: "Instagram queue", count: pendingImports.length },
     { id: "orders", label: "Orders", count: orders.length },
     { id: "coupons", label: "Coupons", count: coupons.length },
-    { id: "settings", label: "Integrations" },
+    { id: "shipping", label: "Shipping" },
+    { id: "settings", label: "Site controls" },
   ];
 
   return (
@@ -490,9 +550,10 @@ export default function AdminDashboard({
         {notice && <div className="admin-notice" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
 
         {tab === "overview" && <div className="admin-overview">
-          <div className="metric-grid"><article><span>Products</span><strong>{products.length}</strong><small>{products.filter((item) => item.status === "active").length} live</small></article><article><span>Units in stock</span><strong>{totalStock}</strong><small>Across every size</small></article><article><span>Pending posts</span><strong>{pendingImports.length}</strong><small>Ready for review</small></article><article><span>Captured revenue</span><strong>{rupees(revenue)}</strong><small>{paidOrders.length} paid orders</small></article></div>
+          <div className="metric-grid"><article><span>Products</span><strong>{products.length}</strong><small>{products.filter((item) => item.status === "active").length} live</small></article><article><span>Units in stock</span><strong>{totalStock}</strong><small>Across every size</small></article><article><span>Shipping setup</span><strong>{productsMissingShippingWeight}</strong><small>{productsMissingShippingWeight ? "live product(s) need packed weight" : "Every live product is weighted"}</small></article><article><span>Captured revenue</span><strong>{rupees(revenue)}</strong><small>{paidOrders.length} paid orders</small></article></div>
           <div className="admin-two-col"><article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Inventory</p><h2>What needs attention</h2></div><button onClick={() => setTab("products")}>Manage →</button></div>{products.map((product) => { const stock = product.variants.reduce((sum, variant) => sum + variant.stock, 0); return <div className="attention-row" key={product.id}><img src={product.images[0]} alt="" /><div><strong>{product.name}</strong><span>{product.status} · {stock} units</span></div><span className={stock < 5 ? "low" : "good"}>{stock < 5 ? "Low stock" : "Healthy"}</span></div>; })}</article>
           <article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Workflow</p><h2>Instagram → Store</h2></div></div><div className="workflow-steps"><div className="done"><span>1</span><div><strong>Post on Instagram</strong><small>Keep creating as usual</small></div></div><div><span>2</span><div><strong>Sync to review queue</strong><small>Photos and captions arrive as pending</small></div></div><div><span>3</span><div><strong>Add selling details</strong><small>Set price, sizes and stock, then publish</small></div></div></div><button className="button button-outline" onClick={() => setTab("instagram")}>Open Instagram queue</button></article></div>
+          <article className="admin-card admin-activity"><div className="admin-card-heading"><div><p className="kicker">Operational activity</p><h2>Recent important events</h2></div><small>Only security and actionable system events are retained.</small></div>{initialEvents.length ? <div className="activity-list">{initialEvents.map((event) => <div key={event.id}><span className={`event-severity ${event.severity}`}>{event.severity}</span><strong>{event.eventType.replace(/[._]/g, " ")}</strong><small>{event.detail || "—"} · {shortDate(event.createdAt)}</small></div>)}</div> : <p className="admin-activity-empty">No important events yet. Successful routine page views are deliberately not logged.</p>}</article>
         </div>}
 
         {tab === "products" && <div className="product-admin-layout">
@@ -504,7 +565,7 @@ export default function AdminDashboard({
               <div className="editor-photo-grid">{draft.images.map((image, index) => <article key={`${image}-${index}`} className={index === 0 ? "primary" : ""}><img src={image} alt={`${draft.name}, admin view ${index + 1}`} /><span>{index === 0 ? "Cover" : `Photo ${index + 1}`}</span><div>{index > 0 && <button type="button" onClick={() => makePrimary(index)}>Set cover</button>}<button type="button" onClick={() => moveImage(index, -1)} disabled={index === 0} aria-label="Move photo earlier">←</button><button type="button" onClick={() => moveImage(index, 1)} disabled={index === draft.images.length - 1} aria-label="Move photo later">→</button><button type="button" className="remove" onClick={() => removeImage(index)}>Remove</button></div></article>)}</div>
               {!draft.images.length && <div className="editor-photo-empty">No photos yet. Add clear front, back and detail views before publishing.</div>}
             </div>
-            <div className="editor-fields"><label className="wide"><span>Product name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label><span>Selling price (₹)</span><input type="number" min="0" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label><label><span>Compare-at price (₹)</span><input type="number" min="0" value={draft.compareAt} onChange={(event) => setDraft({ ...draft, compareAt: Number(event.target.value) })} /></label><label><span>Colour</span><input value={draft.color} onChange={(event) => setDraft({ ...draft, color: event.target.value })} /></label><label><span>Fabric</span><input value={draft.fabric} onChange={(event) => setDraft({ ...draft, fabric: event.target.value })} /></label><label className="wide"><span>What is included</span><input value={draft.includes} onChange={(event) => setDraft({ ...draft, includes: event.target.value })} /></label><label className="wide"><span>Description</span><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={5} /></label></div>
+            <div className="editor-fields"><label className="wide"><span>Product name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label><span>Selling price (₹)</span><input type="number" min="0" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label><label><span>Compare-at price (₹)</span><input type="number" min="0" value={draft.compareAt} onChange={(event) => setDraft({ ...draft, compareAt: Number(event.target.value) })} /></label><label><span>Packed shipping weight (g)</span><input type="number" min="1" max="50000" value={draft.packedWeightGrams || ""} onChange={(event) => setDraft({ ...draft, packedWeightGrams: Number(event.target.value) })} /><small>Garment plus packaging. Required to publish.</small></label><label><span>Colour</span><input value={draft.color} onChange={(event) => setDraft({ ...draft, color: event.target.value })} /></label><label><span>Fabric</span><input value={draft.fabric} onChange={(event) => setDraft({ ...draft, fabric: event.target.value })} /></label><label className="wide"><span>What is included</span><input value={draft.includes} onChange={(event) => setDraft({ ...draft, includes: event.target.value })} /></label><label className="wide"><span>Description</span><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={5} /></label></div>
             <div className="inventory-editor"><div><h3>Size inventory</h3><p>Stock reaches the storefront immediately after saving.</p></div><div className="variant-grid">{draft.variants.map((variant, index) => <label key={variant.id}><span>{variant.size}</span><input type="number" min="0" max="9999" value={variant.stock} onChange={(event) => { const variants = [...draft.variants]; variants[index] = { ...variant, stock: Number(event.target.value) }; setDraft({ ...draft, variants }); }} /></label>)}</div></div>
             <div className="editor-publish"><label><span>Visibility</span><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as CatalogProduct["status"] })}><option value="draft">Draft — hidden from customers</option><option value="active">Active — visible and purchasable</option><option value="archived">Archived</option></select></label><label className="feature-toggle"><input type="checkbox" checked={draft.featured} onChange={(event) => setDraft({ ...draft, featured: event.target.checked })} /><span>Feature on home page</span></label><button className="button button-dark" onClick={saveProduct} disabled={busy}>{busy ? "Saving…" : "Save product"}</button></div>
           </div>}
@@ -527,6 +588,7 @@ export default function AdminDashboard({
               <label><span>Courier</span><input value={order.courierName} onChange={(event) => updateOrderDraft(order.id, { courierName: event.target.value })} placeholder="Delhivery, Blue Dart…" /></label>
               <label><span>Tracking number / AWB</span><input value={order.trackingNumber} onChange={(event) => updateOrderDraft(order.id, { trackingNumber: event.target.value })} placeholder="Shipment reference" /></label>
               <label className="wide"><span>Courier tracking link</span><input type="url" value={order.trackingUrl} onChange={(event) => updateOrderDraft(order.id, { trackingUrl: event.target.value })} placeholder="https://…" /></label>
+              <label className="feature-toggle"><input type="checkbox" checked={order.legalHold} onChange={(event) => changeLegalHold(order, event.target.checked)} disabled={busy} /><span>Legal hold</span></label>
               <button className="button button-outline" onClick={() => saveTracking(order)} disabled={busy || order.paymentStatus !== "captured"}>Save tracking</button>
               {order.razorpayOrderId && !["captured", "refunded"].includes(order.paymentStatus) && <button className="text-link" onClick={() => reconcileOrder(order.id)} disabled={busy}>Reconcile Razorpay</button>}
               {order.paymentStatus === "captured" && <button className="text-link" onClick={() => refundOrder(order.id)} disabled={busy}>{order.status === "refund_pending" ? "Retry refund" : "Refund & restock"}</button>}
@@ -570,7 +632,16 @@ export default function AdminDashboard({
           </form>
         </div>}
 
+        {/* The site-controls panel below includes these integration cards. */}
+        {/*
         {tab === "settings" && <div className="settings-grid"><article><div className="setting-logo razor">R</div><div><h2>Razorpay</h2><p>UPI, cards and payment verification. Add test keys first, make a complete test order, then switch to live keys.</p><span>Needs secure keys</span></div></article><article><div className="setting-logo mail">@</div><div><h2>Order email alerts</h2><p>Sends the admin an immediate paid-order email and gives the customer a confirmation copy.</p><span className={notificationConfigured ? "connected" : ""}>{notificationConfigured ? "Connected" : "Needs email connection"}</span></div></article><article><div className="setting-logo insta">◎</div><div><h2>Instagram</h2><p>Imports recent media into a private review queue. Requires an Instagram professional account and a long-lived access token.</p><span>Needs Meta connection</span></div></article><article><div className="setting-logo whats">◔</div><div><h2>WhatsApp</h2><p>Customer messages open directly to the number printed on your current product label: +91 77159 10151.</p><span className="connected">Connected</span></div></article><article><div className="setting-logo ship">↗</div><div><h2>Shipping tracking</h2><p>Add the courier, AWB number and tracking link to each order. Customers can check progress without creating an account.</p><span className="connected">Ready</span></div></article><div className="security-note"><strong>Security by design</strong><p>The shop never receives card or UPI credentials. Prices are recalculated on the server, stock is reserved before payment, successful payments are signature-verified, admin routes require the private access key, and uploaded files are validated before storage.</p></div></div>}
+        */}
+        {tab === "shipping" && <div className="shipping-admin">
+          <section className="storefront-editor"><div><p className="kicker">Mumbai-origin delivery pricing</p><h2>Rates customers can understand.</h2><p>The published carrier charge is combined with a single ₹50 handling and packing fee per shipment. These India Post seed rates are editable—review them against your actual courier before publishing.</p></div><div className="shipping-preview"><label><span>Preview zone</span><select value={shippingPreview.zone} onChange={(event) => setShippingPreview({ ...shippingPreview, zone: event.target.value as ShippingZone })}>{SHIPPING_ZONES.map((zone) => <option key={zone} value={zone}>{zone.replace(/_/g, " ")}</option>)}</select></label><label><span>Packed cart weight (g)</span><input type="number" min="1" max="50000" value={shippingPreview.weightGrams} onChange={(event) => setShippingPreview({ ...shippingPreview, weightGrams: Math.max(1, Number(event.target.value) || 1) })} /></label><p>{previewCard ? <>Customer shipping: <strong>{rupees((previewCard.carrierChargePaise + 5000) / 100)}</strong> ({rupees(previewCard.carrierChargePaise / 100)} carrier + ₹50 handling; billed at {previewCard.weightLimitGrams} g)</> : "No applicable band — customer must request a manual WhatsApp quote."}</p></div><div className="shipping-card-list">{shippingCards.map((card, index) => <div className="shipping-rate-row" key={`${card.id}-${index}`}><select value={card.zone} onChange={(event) => setShippingCards((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, zone: event.target.value as ShippingZone } : item))}>{SHIPPING_ZONES.map((zone) => <option key={zone} value={zone}>{zone.replace(/_/g, " ")}</option>)}</select><label><span>Up to g</span><input type="number" min="1" value={card.weightLimitGrams} onChange={(event) => setShippingCards((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, weightLimitGrams: Number(event.target.value) } : item))} /></label><label><span>Carrier ₹</span><input type="number" min="0" step="1" value={card.carrierChargePaise / 100} onChange={(event) => setShippingCards((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, carrierChargePaise: Math.round(Number(event.target.value) * 100) } : item))} /></label><label><span>Days</span><input type="number" min="1" value={card.deliveryDaysMin} onChange={(event) => setShippingCards((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, deliveryDaysMin: Number(event.target.value) } : item))} /></label><label><span>to</span><input type="number" min="1" value={card.deliveryDaysMax} onChange={(event) => setShippingCards((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, deliveryDaysMax: Number(event.target.value) } : item))} /></label><label><span>Reviewed</span><input type="date" value={card.lastReviewedAt?.slice(0, 10) ?? ""} onChange={(event) => setShippingCards((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, lastReviewedAt: event.target.value || null } : item))} /></label><label className="feature-toggle"><input type="checkbox" checked={card.serviceable} onChange={(event) => setShippingCards((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, serviceable: event.target.checked } : item))} /><span>Available</span></label><button type="button" className="text-link" onClick={() => setShippingCards((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></div>)}</div><button type="button" className="button button-outline" onClick={() => setShippingCards((current) => [...current, { id: -Date.now(), zone: "maharashtra", weightLimitGrams: 500, carrierChargePaise: 0, deliveryDaysMin: 3, deliveryDaysMax: 6, serviceable: true, lastReviewedAt: null }])}>Add weight band</button></section>
+          <section className="storefront-editor"><div><p className="kicker">PIN-code rules</p><h2>Local overrides and exceptions.</h2><p>Use an exact Mumbai PIN for local pricing, a remote-area message, a manual quote or an unavailable destination. Leave the carrier charge blank to use the matching zone card.</p></div><div className="pin-rule-list">{pinRules.map((rule, index) => <div className="pin-rule-row" key={`${rule.id}-${index}`}><input inputMode="numeric" maxLength={6} value={rule.pincode} placeholder="PIN" onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, pincode: event.target.value.replace(/\D/g, "").slice(0, 6) } : item))} /><select value={rule.zone ?? ""} onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, zone: (event.target.value || null) as ShippingZone | null } : item))}><option value="">Default zone</option>{SHIPPING_ZONES.map((zone) => <option key={zone} value={zone}>{zone.replace(/_/g, " ")}</option>)}</select><label><span>Carrier ₹</span><input type="number" min="0" value={rule.carrierChargePaise === null ? "" : rule.carrierChargePaise / 100} onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, carrierChargePaise: event.target.value === "" ? null : Math.round(Number(event.target.value) * 100) } : item))} /></label><label className="feature-toggle"><input type="checkbox" checked={rule.serviceable} onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, serviceable: event.target.checked } : item))} /><span>Serviceable</span></label><label className="feature-toggle"><input type="checkbox" checked={rule.manualQuoteRequired} onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, manualQuoteRequired: event.target.checked } : item))} /><span>Manual quote</span></label><input value={rule.note} placeholder="Customer note" onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, note: event.target.value } : item))} /><button type="button" className="text-link" onClick={() => setPinRules((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></div>)}</div><button type="button" className="button button-outline" onClick={() => setPinRules((current) => [...current, { id: -Date.now(), pincode: "", zone: null, serviceable: true, manualQuoteRequired: false, carrierChargePaise: null, deliveryDaysMin: null, deliveryDaysMax: null, note: "" }])}>Add PIN rule</button><button className="button button-dark" onClick={saveShipping} disabled={busy || !shippingCards.length}>{busy ? "Publishing…" : "Review & publish shipping rates"}</button></section>
+        </div>}
+
+        {tab === "settings" && <div className="settings-grid"><section className="storefront-editor"><div><p className="kicker">Homepage editor</p><h2>Control the first impression.</h2><p>Update the promotion, hero and brand story without touching code. Shipping wording is protected so customers only see supportable claims.</p></div><div className="storefront-fields"><label className="wide"><span>Promotion text</span><input value={storefrontSettings.promotionText} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, promotionText: event.target.value })} /></label><label><span>Promotion CTA</span><input value={storefrontSettings.promotionCtaLabel} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, promotionCtaLabel: event.target.value })} /></label><label><span>Promotion destination</span><input value={storefrontSettings.promotionCtaHref} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, promotionCtaHref: event.target.value })} placeholder="/shop" /></label><label><span>Hero kicker</span><input value={storefrontSettings.heroKicker} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, heroKicker: event.target.value })} /></label><label><span>Hero heading</span><input value={storefrontSettings.heroHeading} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, heroHeading: event.target.value })} /></label><label><span>Hero emphasis</span><input value={storefrontSettings.heroAccent} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, heroAccent: event.target.value })} /></label><label className="wide"><span>Hero description</span><textarea rows={3} value={storefrontSettings.heroBody} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, heroBody: event.target.value })} /></label><label><span>Story heading</span><input value={storefrontSettings.storyHeading} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, storyHeading: event.target.value })} /></label><label className="wide"><span>Story</span><textarea rows={4} value={storefrontSettings.storyBody} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, storyBody: event.target.value })} /></label><label><span>Newsletter heading</span><input value={storefrontSettings.newsletterHeading} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, newsletterHeading: event.target.value })} /></label><label className="wide"><span>Newsletter description</span><textarea rows={3} value={storefrontSettings.newsletterBody} onChange={(event) => setStorefrontSettings({ ...storefrontSettings, newsletterBody: event.target.value })} /></label></div><button className="button button-dark" onClick={saveStorefront} disabled={busy}>{busy ? "Saving…" : "Publish homepage content"}</button></section><article><div className="setting-logo razor">R</div><div><h2>Razorpay</h2><p>UPI, cards and payment verification. Add test keys first, make a complete test order, then switch to live keys.</p><span>Needs secure keys</span></div></article><article><div className="setting-logo mail">@</div><div><h2>Order email alerts</h2><p>Sends the admin an immediate paid-order email and gives the customer a confirmation copy.</p><span className={notificationConfigured ? "connected" : ""}>{notificationConfigured ? "Connected" : "Needs email connection"}</span></div></article><article><div className="setting-logo insta">◎</div><div><h2>Instagram</h2><p>Imports recent media into a private review queue. Requires an Instagram professional account and a long-lived access token.</p><span>Needs Meta connection</span></div></article><article><div className="setting-logo whats">◔</div><div><h2>WhatsApp</h2><p>Customer messages open directly to the number printed on your current product label: +91 77159 10151.</p><span className="connected">Connected</span></div></article><article><div className="setting-logo ship">↗</div><div><h2>Shipping tracking</h2><p>Add the courier, AWB number and tracking link to each order. Customers can check progress without creating an account.</p><span className="connected">Ready</span></div></article><div className="security-note"><strong>Security by design</strong><p>The shop never receives card or UPI credentials. Prices are recalculated on the server, stock is reserved before payment, successful payments are signature-verified, admin routes require the private access key, and uploaded files are validated before storage.</p></div></div>}
       </section>
     </main>
   );

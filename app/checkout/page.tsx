@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { desc, eq } from "drizzle-orm";
 import CheckoutClient, { type CheckoutSelection } from "./checkout-client";
+import { getDb } from "../../db";
+import { addresses } from "../../db/schema";
 import { getAllProducts } from "../../lib/catalog";
 import { currentUser } from "../../lib/auth";
 
@@ -34,6 +37,15 @@ export default async function CheckoutPage({
   const params = await searchParams;
   const [catalog, user] = await Promise.all([getAllProducts(), currentUser()]);
   const products = catalog.filter((product) => product.status === "active");
+  let savedAddresses: Array<{ id: string; label: string; recipientName: string; phone: string; addressLine1: string; addressLine2: string; city: string; state: string; countryCode: string; postalCode: string; isDefault: boolean }> = [];
+  if (user) {
+    try {
+      savedAddresses = await getDb().select().from(addresses).where(eq(addresses.userId, user.id)).orderBy(desc(addresses.isDefault), desc(addresses.createdAt));
+    } catch {
+      // Checkout remains available if the optional address-book migration has
+      // not reached a deployment yet.
+    }
+  }
   const selections: CheckoutSelection[] = [];
 
   for (const request of requestedCart(params.cart)) {
@@ -53,5 +65,5 @@ export default async function CheckoutPage({
     }
   }
 
-  return <CheckoutClient products={products} initialItems={selections} initialCustomer={user ? { name: user.name, email: user.email } : undefined} />;
+  return <CheckoutClient products={products} initialItems={selections} initialCustomer={user ? { name: user.name, email: user.email } : undefined} savedAddresses={savedAddresses} />;
 }

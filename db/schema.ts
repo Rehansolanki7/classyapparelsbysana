@@ -8,16 +8,78 @@ export const users = mysqlTable("users", {
   id: varchar("id", { length: 36 }).primaryKey(),
   email: varchar("email", { length: 180 }).notNull(),
   name: varchar("name", { length: 120 }).notNull().default(""),
+  // Passwords are never stored or returned in clear text. The value contains a
+  // versioned scrypt hash and a per-user random salt (see lib/passwords.ts).
+  passwordHash: varchar("password_hash", { length: 255 }),
   role: mysqlEnum("role", ["owner", "admin", "customer"]).notNull().default("customer"),
   emailVerifiedAt: datetime("email_verified_at", { mode: "string" }),
+  lastLoginAt: datetime("last_login_at", { mode: "string" }),
+  /** Incremented to invalidate every customer session after a privacy deletion. */
+  sessionVersion: int("session_version").notNull().default(0),
+  /** Sent 30 days before an inactive account is removed. */
+  inactivityNoticeSentAt: datetime("inactivity_notice_sent_at", { mode: "string" }),
+  /** Prevents future marketing use when a privacy deletion is requested. */
+  marketingSuppressedAt: datetime("marketing_suppressed_at", { mode: "string" }),
   createdAt,
   updatedAt,
 }, (table) => [uniqueIndex("users_email_unique").on(table.email), index("users_role_idx").on(table.role)]);
 
+export const addresses = mysqlTable("addresses", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  label: varchar("label", { length: 40 }).notNull().default("Home"),
+  recipientName: varchar("recipient_name", { length: 120 }).notNull(),
+  phone: varchar("phone", { length: 20 }).notNull(),
+  addressLine1: varchar("address_line_1", { length: 220 }).notNull(),
+  addressLine2: varchar("address_line_2", { length: 220 }).notNull().default(""),
+  city: varchar("city", { length: 100 }).notNull(),
+  state: varchar("state", { length: 100 }).notNull(),
+  countryCode: varchar("country_code", { length: 2 }).notNull().default("IN"),
+  postalCode: varchar("postal_code", { length: 20 }).notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt,
+  updatedAt,
+}, (table) => [index("addresses_user_default_idx").on(table.userId, table.isDefault, table.createdAt)]);
+
+/**
+ * Intentionally small, structured operational trail. Do not put passwords,
+ * payment data, OTPs, addresses or raw request bodies in this table.
+ */
+export const systemEvents = mysqlTable("system_events", {
+  id: int("id").autoincrement().primaryKey(),
+  severity: mysqlEnum("severity", ["info", "warning", "error", "security"]).notNull(),
+  eventType: varchar("event_type", { length: 80 }).notNull(),
+  actorId: varchar("actor_id", { length: 36 }),
+  entityType: varchar("entity_type", { length: 60 }),
+  entityId: varchar("entity_id", { length: 120 }),
+  detail: varchar("detail", { length: 500 }).notNull().default(""),
+  createdAt,
+}, (table) => [index("system_events_recent_idx").on(table.createdAt), index("system_events_type_idx").on(table.eventType, table.createdAt)]);
+
+export const storefrontSettings = mysqlTable("storefront_settings", {
+  id: int("id").primaryKey(),
+  // Legacy announcement fields are retained for a safe database upgrade. New
+  // storefronts use the single promotion fields below instead.
+  announcementPrimary: varchar("announcement_primary", { length: 160 }).notNull().default("A considered collection, chosen with care."),
+  announcementSecondary: varchar("announcement_secondary", { length: 160 }).notNull().default(""),
+  promotionText: varchar("promotion_text", { length: 160 }).notNull().default("A considered collection, chosen with care."),
+  promotionCtaLabel: varchar("promotion_cta_label", { length: 80 }).notNull().default("Explore the collection"),
+  promotionCtaHref: varchar("promotion_cta_href", { length: 240 }).notNull().default("/shop"),
+  heroKicker: varchar("hero_kicker", { length: 160 }).notNull().default("Boutique pieces · selected in Mumbai"),
+  heroHeading: varchar("hero_heading", { length: 160 }).notNull().default("Wear the moment."),
+  heroAccent: varchar("hero_accent", { length: 160 }).notNull().default("Keep the feeling."),
+  heroBody: varchar("hero_body", { length: 500 }).notNull().default("Limited, considered pieces for women who love colour, comfort and a little quiet drama."),
+  storyHeading: varchar("story_heading", { length: 160 }).notNull().default("Fashion should feel personal."),
+  storyBody: varchar("story_body", { length: 800 }).notNull().default("Classy Apparels by Sana began as an Instagram boutique built around a simple idea: share lovely pieces honestly, answer every sizing question with care, and make shopping feel like talking to someone you trust."),
+  newsletterHeading: varchar("newsletter_heading", { length: 160 }).notNull().default("First look at every new drop."),
+  newsletterBody: varchar("newsletter_body", { length: 500 }).notNull().default("Message “JOIN” on WhatsApp for launch alerts, restocks and private previews."),
+  updatedAt,
+});
+
 export const emailOtps = mysqlTable("email_otps", {
   id: int("id").autoincrement().primaryKey(),
   email: varchar("email", { length: 180 }).notNull(),
-  purpose: mysqlEnum("purpose", ["sign_in", "recovery"]).notNull(),
+  purpose: mysqlEnum("purpose", ["sign_in", "recovery", "privacy_delete"]).notNull(),
   codeHash: varchar("code_hash", { length: 64 }).notNull(),
   attempts: int("attempts").notNull().default(0),
   expiresAt: datetime("expires_at", { mode: "string" }).notNull(),
@@ -40,6 +102,8 @@ export const products = mysqlTable("products", {
   includes: varchar("includes", { length: 300 }).notNull().default(""),
   care: varchar("care", { length: 500 }).notNull().default(""),
   primaryImage: varchar("primary_image", { length: 500 }).notNull().default(""),
+  /** Packed parcel weight, including packaging, used for destination pricing. */
+  packedWeightGrams: int("packed_weight_grams").notNull().default(0),
   source: mysqlEnum("source", ["manual", "instagram"]).notNull().default("manual"),
   instagramMediaId: varchar("instagram_media_id", { length: 80 }),
   instagramPermalink: varchar("instagram_permalink", { length: 500 }),
@@ -109,6 +173,8 @@ export const orders = mysqlTable("orders", {
   refundId: varchar("refund_id", { length: 80 }),
   refundReason: varchar("refund_reason", { length: 300 }),
   stockRestoredAt: datetime("stock_restored_at", { mode: "string" }),
+  /** Preserves a record from retention cleanup while a dispute or legal matter is open. */
+  legalHold: boolean("legal_hold").notNull().default(false),
   courierName: varchar("courier_name", { length: 100 }).notNull().default(""),
   trackingNumber: varchar("tracking_number", { length: 120 }).notNull().default(""),
   trackingUrl: varchar("tracking_url", { length: 500 }).notNull().default(""),
@@ -180,10 +246,56 @@ export const restockSubscriptions = mysqlTable("restock_subscriptions", {
 export const pincodeRules = mysqlTable("pincode_rules", {
   id: int("id").autoincrement().primaryKey(),
   pincode: varchar("pincode", { length: 6 }).notNull(),
+  zone: mysqlEnum("zone", ["mumbai_local", "maharashtra", "rest_of_india"]),
   serviceable: boolean("serviceable").notNull().default(true),
-  shippingPaise: int("shipping_paise"),
+  /** Exact carrier-rate override. Handling is added separately, once per shipment. */
+  carrierChargePaise: int("shipping_paise"),
+  manualQuoteRequired: boolean("manual_quote_required").notNull().default(false),
   deliveryDaysMin: int("delivery_days_min"),
   deliveryDaysMax: int("delivery_days_max"),
   note: varchar("note", { length: 300 }).notNull().default(""),
   updatedAt,
 }, (table) => [uniqueIndex("pincode_rules_pincode_unique").on(table.pincode)]);
+
+export const shippingRateCards = mysqlTable("shipping_rate_cards", {
+  id: int("id").autoincrement().primaryKey(),
+  zone: mysqlEnum("zone", ["mumbai_local", "maharashtra", "rest_of_india"]).notNull(),
+  /** Upper inclusive packed-weight band in grams. */
+  weightLimitGrams: int("weight_limit_grams").notNull(),
+  /** Editable carrier baseline in paise; customer price adds the fixed handling fee. */
+  carrierChargePaise: int("carrier_charge_paise").notNull(),
+  deliveryDaysMin: int("delivery_days_min").notNull().default(4),
+  deliveryDaysMax: int("delivery_days_max").notNull().default(8),
+  serviceable: boolean("serviceable").notNull().default(true),
+  lastReviewedAt: datetime("last_reviewed_at", { mode: "string" }),
+  createdAt,
+  updatedAt,
+}, (table) => [
+  uniqueIndex("shipping_rate_cards_zone_weight_unique").on(table.zone, table.weightLimitGrams),
+  index("shipping_rate_cards_zone_idx").on(table.zone, table.serviceable, table.weightLimitGrams),
+]);
+
+/** Minimal customer-deletion workflow record. It deliberately stores no address, order, OTP or payment data. */
+export const privacyRequests = mysqlTable("privacy_requests", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  requesterUserId: varchar("requester_user_id", { length: 36 }).notNull(),
+  email: varchar("email", { length: 180 }).notNull(),
+  emailHash: varchar("email_hash", { length: 64 }).notNull(),
+  status: mysqlEnum("status", ["pending", "completed", "retry", "failed"]).notNull().default("pending"),
+  verifiedAt: datetime("verified_at", { mode: "string" }).notNull(),
+  completedAt: datetime("completed_at", { mode: "string" }),
+  lastErrorCode: varchar("last_error_code", { length: 80 }),
+  createdAt,
+  updatedAt,
+}, (table) => [index("privacy_requests_status_created_idx").on(table.status, table.createdAt), index("privacy_requests_user_idx").on(table.requesterUserId)]);
+
+/** Retention-job audit trail: action and entity identifiers only; never personal payloads. */
+export const retentionActions = mysqlTable("retention_actions", {
+  id: int("id").autoincrement().primaryKey(),
+  action: varchar("action", { length: 80 }).notNull(),
+  entityType: varchar("entity_type", { length: 60 }).notNull(),
+  entityId: varchar("entity_id", { length: 120 }).notNull(),
+  status: mysqlEnum("status", ["completed", "skipped", "failed"]).notNull(),
+  detail: varchar("detail", { length: 240 }).notNull().default(""),
+  createdAt,
+}, (table) => [index("retention_actions_recent_idx").on(table.createdAt), index("retention_actions_entity_idx").on(table.entityType, table.entityId)]);

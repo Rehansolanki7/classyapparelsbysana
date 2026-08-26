@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CatalogProduct } from "../lib/catalog";
+import type { StorefrontSettings } from "../lib/storefront-settings";
 
 type BagItem = { productId: string; size: string; quantity: number };
 const BAG_KEY = "classy-apparels-bag-v1";
@@ -60,7 +61,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
   return null;
 }
 
-export default function Storefront({ product, products }: { product: CatalogProduct; products: CatalogProduct[] }) {
+export default function Storefront({ product, products, settings }: { product: CatalogProduct; products: CatalogProduct[]; settings: StorefrontSettings }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -154,7 +155,7 @@ export default function Storefront({ product, products }: { product: CatalogProd
   return (
     <main>
       <a className="skip-link" href="#shop">Skip to products</a>
-      <div className="announcement"><span>Complimentary shipping over ₹1,499</span><span className="announcement-dot" /><span>New Sana edit is live</span></div>
+      <div className="announcement"><span>{settings.promotionText}</span><a href={settings.promotionCtaHref}>{settings.promotionCtaLabel} →</a></div>
 
       <header className="site-header">
         <button className="icon-button mobile-only" onClick={() => setMenuOpen(true)} aria-label="Open menu"><Icon name="menu" size={23} /></button>
@@ -171,9 +172,9 @@ export default function Storefront({ product, products }: { product: CatalogProd
 
       <section className="hero" id="top">
         <div className="hero-copy">
-          <p className="kicker">Boutique pieces · selected in Mumbai</p>
-          <h1>Wear the moment.<br /><em>Keep the feeling.</em></h1>
-          <p className="hero-body">Limited, considered pieces for women who love colour, comfort and a little quiet drama.</p>
+          <p className="kicker">{settings.heroKicker}</p>
+          <h1>{settings.heroHeading}<br /><em>{settings.heroAccent}</em></h1>
+          <p className="hero-body">{settings.heroBody}</p>
           <div className="hero-actions">
             <a className="button button-dark" href="/shop">Shop now <Icon name="arrow" size={18} /></a>
             <a className="text-link" href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer">Follow on Instagram <Icon name="instagram" size={17} /></a>
@@ -188,7 +189,7 @@ export default function Storefront({ product, products }: { product: CatalogProd
       </section>
 
       <section className="service-strip" aria-label="Shopping benefits">
-        <div><Icon name="truck" /><span><strong>Free delivery</strong><small>On prepaid orders over ₹1,499</small></span></div>
+        <div><Icon name="truck" /><span><strong>Delivery across India</strong><small>Shipping shown at checkout</small></span></div>
         <div><Icon name="rotate" /><span><strong>Easy size exchange</strong><small>Request within 3 days of delivery</small></span></div>
         <div><Icon name="shield" /><span><strong>Secure checkout</strong><small>UPI, cards and trusted payments</small></span></div>
       </section>
@@ -237,12 +238,12 @@ export default function Storefront({ product, products }: { product: CatalogProd
 
       <section className="story-section" id="story">
         <div className="story-mark">S</div>
-        <div><p className="kicker">A note from Sana</p><h2>Fashion should feel personal.</h2><p>Classy Apparels by Sana began as an Instagram boutique built around a simple idea: share lovely pieces honestly, answer every sizing question with care, and make shopping feel like talking to someone you trust.</p></div>
+        <div><p className="kicker">A note from Sana</p><h2>{settings.storyHeading}</h2><p>{settings.storyBody}</p></div>
         <a href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer" className="button button-outline">Meet us on Instagram</a>
       </section>
 
       <section className="newsletter">
-        <p className="kicker">The Sana circle</p><h2>First look at every new drop.</h2><p>Message “JOIN” on WhatsApp for launch alerts, restocks and private previews.</p>
+        <p className="kicker">The Sana circle</p><h2>{settings.newsletterHeading}</h2><p>{settings.newsletterBody}</p>
         <a className="newsletter-join" href={`https://wa.me/917715910151?text=${encodeURIComponent("JOIN — Please add me to Classy Apparels by Sana drop updates.")}`} target="_blank" rel="noreferrer">Join on WhatsApp <Icon name="arrow" /></a>
       </section>
 
@@ -273,8 +274,7 @@ export default function Storefront({ product, products }: { product: CatalogProd
         ) : (
           <div className="cart-content">
             <div className="shop-bag-items">{bagLines.map(({ item, product: bagProduct, index }) => <div className="shop-bag-item" key={`${item.productId}-${item.size}`}><img src={bagProduct.images[0]} alt="" /><div><strong>{bagProduct.name}</strong><span>Size {item.size}</span><small>{money(bagProduct.price * item.quantity)}</small><div className="quantity-control"><button onClick={() => changeQuantity(index, item.quantity - 1)} aria-label="Decrease quantity">−</button><span>{item.quantity}</span><button onClick={() => changeQuantity(index, item.quantity + 1)} aria-label="Increase quantity">+</button></div></div><button className="bag-remove" onClick={() => changeQuantity(index, 0)} aria-label={`Remove ${bagProduct.name}`}>×</button></div>)}</div>
-            <div className="shipping-meter"><div><span>{bagSubtotal >= 1499 ? "You’re getting complimentary shipping" : `${money(1499 - bagSubtotal)} away from free shipping`}</span><strong>{bagSubtotal >= 1499 ? "✓" : ""}</strong></div><div className="meter-track"><div className="meter-fill" style={{ width: `${Math.min(100, (bagSubtotal / 1499) * 100)}%` }} /></div></div>
-            <div className="cart-summary"><div><span>Subtotal</span><strong>{money(bagSubtotal)}</strong></div><small>Shipping and final availability are confirmed at checkout.</small></div>
+            <div className="cart-summary"><div><span>Subtotal</span><strong>{money(bagSubtotal)}</strong></div><small>Shipping is calculated from packed weight and destination at checkout.</small></div>
             <a href={checkoutHref} className="button button-dark checkout-button">Secure checkout <Icon name="arrow" size={18} /></a><p className="secure-line"><Icon name="shield" size={16} /> Protected checkout · UPI · Cards</p>
           </div>
         )}

@@ -5,6 +5,7 @@ import { orders } from "../../../../db/schema";
 import { finalizeCapturedOrder } from "../../../../lib/orders";
 import { sendPaidOrderNotifications } from "../../../../lib/order-notifications";
 import { constantTimeEqual, hmacSha256Hex, rejectCrossSite } from "../../../../lib/security";
+import { recordEvent } from "../../../../lib/logging";
 
 export async function POST(request: Request) {
   const crossSite = rejectCrossSite(request);
@@ -28,7 +29,10 @@ export async function POST(request: Request) {
   if (!order?.razorpayOrderId || order.razorpayOrderId !== payload.razorpay_order_id) return Response.json({ error: "Payment does not match this order" }, { status: 400 });
 
   const expected = await hmacSha256Hex(keys.RAZORPAY_KEY_SECRET, `${order.razorpayOrderId}|${payload.razorpay_payment_id}`);
-  if (!constantTimeEqual(expected, payload.razorpay_signature)) return Response.json({ error: "Payment verification failed" }, { status: 400 });
+  if (!constantTimeEqual(expected, payload.razorpay_signature)) {
+    await recordEvent({ severity: "security", eventType: "checkout.payment_signature_failed", entityType: "order", entityId: order.id });
+    return Response.json({ error: "Payment verification failed" }, { status: 400 });
+  }
 
   let paymentResponse: Response;
   try {
@@ -47,6 +51,7 @@ export async function POST(request: Request) {
     const result = await finalizeCapturedOrder(order.id, payment.id, payload.razorpay_signature);
     if (result === "captured") after(() => sendPaidOrderNotifications(order.id));
     if (result === "refund_required") {
+      await recordEvent({ severity: "warning", eventType: "checkout.payment_captured_refund_required", entityType: "order", entityId: order.id });
       return Response.json({
         ok: true,
         captured: true,
@@ -55,6 +60,7 @@ export async function POST(request: Request) {
         message: "Your payment was received, but the item became unavailable. We will refund it automatically.",
       });
     }
+    await recordEvent({ severity: "info", eventType: "checkout.payment_captured", entityType: "order", entityId: order.id });
     return Response.json({ ok: true, captured: true, orderNumber: order.orderNumber });
   }
   await db

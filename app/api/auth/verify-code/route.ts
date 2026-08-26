@@ -2,12 +2,16 @@ import { sessionCookie, signSession, verifyEmailCode } from "../../../../lib/aut
 import { rejectCrossSite } from "../../../../lib/security";
 import { NextResponse } from "next/server";
 import { checkRateLimit, clientAddress, rateLimitResponse } from "../../../../lib/rate-limit";
+import { recordEvent } from "../../../../lib/logging";
 
 export async function POST(request: Request) {
   const rejected = rejectCrossSite(request);
   if (rejected) return rejected;
   const rate = checkRateLimit(`otp-verify:${clientAddress(request)}`, 20, 15 * 60 * 1000, 30 * 60 * 1000);
-  if (!rate.allowed) return rateLimitResponse(rate.retryAfterSeconds);
+  if (!rate.allowed) {
+    await recordEvent({ severity: "security", eventType: "auth.email_code_verify_rate_limited", detail: "IP rate limit" });
+    return rateLimitResponse(rate.retryAfterSeconds);
+  }
   try {
     const payload = (await request.json()) as { email?: string; code?: string; purpose?: "sign_in" | "recovery" };
     const purpose = payload.purpose === "recovery" ? "recovery" : "sign_in";
@@ -15,8 +19,10 @@ export async function POST(request: Request) {
     const response = NextResponse.json({ ok: true, user: { email: user.email, role: user.role } });
     const cookie = sessionCookie(await signSession(user));
     response.cookies.set(cookie.name, cookie.value, cookie.options);
+    await recordEvent({ severity: "info", eventType: "auth.email_code_login_succeeded", actorId: user.id });
     return response;
   } catch (error) {
+    await recordEvent({ severity: "security", eventType: "auth.email_code_verify_failed", detail: "Invalid or expired code" });
     return Response.json({ error: error instanceof Error ? error.message : "We could not verify that code" }, { status: 400 });
   }
 }

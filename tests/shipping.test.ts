@@ -1,40 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { shippingForDestination } from "../lib/shipping";
+import { calculateShippingFromCards, shippingForDestination, type ShippingRateCard } from "../lib/shipping";
 
-test("every valid Indian PIN remains serviceable when delivery is handled manually", async () => {
-  const previousDbHost = process.env.DB_HOST;
-  delete process.env.DB_HOST;
-  try {
-    const regular = await shippingForDestination("IN", "400001", 100_000);
-    const complimentary = await shippingForDestination("IN", "791001", 149_900);
-    const invalid = await shippingForDestination("IN", "000000", 100_000);
-    assert.equal(regular.serviceable, true);
-    assert.equal(regular.shippingPaise, 9_900);
-    assert.equal(complimentary.serviceable, true);
-    assert.equal(complimentary.shippingPaise, 0);
-    assert.equal(invalid.serviceable, false);
-  } finally {
-    if (previousDbHost === undefined) delete process.env.DB_HOST;
-    else process.env.DB_HOST = previousDbHost;
-  }
+const cards: ShippingRateCard[] = [
+  { id: 1, zone: "mumbai_local", weightLimitGrams: 500, carrierChargePaise: 2800, deliveryDaysMin: 2, deliveryDaysMax: 4, serviceable: true, lastReviewedAt: null },
+  { id: 2, zone: "mumbai_local", weightLimitGrams: 1000, carrierChargePaise: 4800, deliveryDaysMin: 2, deliveryDaysMax: 4, serviceable: true, lastReviewedAt: null },
+  { id: 3, zone: "maharashtra", weightLimitGrams: 500, carrierChargePaise: 6500, deliveryDaysMin: 3, deliveryDaysMax: 6, serviceable: true, lastReviewedAt: null },
+  { id: 4, zone: "maharashtra", weightLimitGrams: 1000, carrierChargePaise: 9100, deliveryDaysMin: 3, deliveryDaysMax: 6, serviceable: true, lastReviewedAt: null },
+  { id: 5, zone: "rest_of_india", weightLimitGrams: 500, carrierChargePaise: 7200, deliveryDaysMin: 4, deliveryDaysMax: 8, serviceable: true, lastReviewedAt: null },
+  { id: 6, zone: "rest_of_india", weightLimitGrams: 1000, carrierChargePaise: 11400, deliveryDaysMin: 4, deliveryDaysMax: 8, serviceable: true, lastReviewedAt: null },
+];
+
+test("shipping adds ₹50 once and rounds the complete cart up to a destination band", () => {
+  const mumbai = calculateShippingFromCards({ cards, pincode: "400001", pincodeRule: { id: 1, pincode: "400001", zone: "mumbai_local", serviceable: true, manualQuoteRequired: false, carrierChargePaise: null, deliveryDaysMin: null, deliveryDaysMax: null, note: "" }, cartWeightGrams: 320 });
+  const maharashtra = calculateShippingFromCards({ cards, pincode: "411001", state: "Maharashtra", cartWeightGrams: 780 });
+  const rest = calculateShippingFromCards({ cards, pincode: "560001", state: "Karnataka", cartWeightGrams: 420 });
+  assert.deepEqual({ serviceable: mumbai.serviceable, shipping: mumbai.shippingPaise, billed: mumbai.billedWeightGrams }, { serviceable: true, shipping: 7800, billed: 500 });
+  assert.deepEqual({ shipping: maharashtra.shippingPaise, billed: maharashtra.billedWeightGrams }, { shipping: 14100, billed: 1000 });
+  assert.deepEqual({ shipping: rest.shippingPaise, billed: rest.billedWeightGrams }, { shipping: 12200, billed: 500 });
 });
 
-test("international delivery requests a manual quote until a reviewed rate is configured", async () => {
-  const previousRate = process.env.INTERNATIONAL_SHIPPING_PAISE;
-  try {
-    delete process.env.INTERNATIONAL_SHIPPING_PAISE;
-    const manual = await shippingForDestination("GB", "SW1A 1AA", 200_000);
-    assert.equal(manual.serviceable, false);
-    assert.equal(manual.manualQuoteRequired, true);
+test("unserviceable destinations and weights above the configured maximum require a manual quote", () => {
+  const blocked = calculateShippingFromCards({ cards, pincode: "400001", cartWeightGrams: 300, pincodeRule: { id: 1, pincode: "400001", zone: null, serviceable: false, manualQuoteRequired: false, carrierChargePaise: null, deliveryDaysMin: null, deliveryDaysMax: null, note: "Remote delivery review" } });
+  const oversized = calculateShippingFromCards({ cards, pincode: "560001", state: "Karnataka", cartWeightGrams: 1100 });
+  assert.equal(blocked.serviceable, false);
+  assert.equal(blocked.manualQuoteRequired, true);
+  assert.equal(oversized.manualQuoteRequired, true);
+});
 
-    process.env.INTERNATIONAL_SHIPPING_PAISE = "249900";
-    const configured = await shippingForDestination("US", "10001", 200_000);
-    assert.equal(configured.serviceable, true);
-    assert.equal(configured.manualQuoteRequired, false);
-    assert.equal(configured.shippingPaise, 249_900);
-  } finally {
-    if (previousRate === undefined) delete process.env.INTERNATIONAL_SHIPPING_PAISE;
-    else process.env.INTERNATIONAL_SHIPPING_PAISE = previousRate;
-  }
+test("international delivery stays a manual quote before payment", async () => {
+  const manual = await shippingForDestination("GB", "SW1A 1AA", { cartWeightGrams: 500 });
+  assert.equal(manual.serviceable, false);
+  assert.equal(manual.manualQuoteRequired, true);
 });

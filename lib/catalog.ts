@@ -24,6 +24,7 @@ export type CatalogProduct = {
   color: string;
   fabric: string;
   care: string;
+  packedWeightGrams: number;
   status: "draft" | "active" | "archived";
   featured: boolean;
   source: "manual" | "instagram";
@@ -45,6 +46,8 @@ export const FALLBACK_PRODUCT: CatalogProduct = {
   color: "Aqua",
   fabric: "Confirm in admin",
   care: "Gentle hand wash separately in cold water. Dry in shade.",
+  // Development fallback only. Production products must be confirmed in Admin.
+  packedWeightGrams: 0,
   status: "active",
   featured: true,
   source: "manual",
@@ -88,6 +91,7 @@ function mapProduct(
     color: row.color,
     fabric: row.fabric,
     care: row.care,
+    packedWeightGrams: row.packedWeightGrams,
     status: row.status,
     featured: row.featured,
     source: row.source,

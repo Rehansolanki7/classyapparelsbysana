@@ -5,12 +5,14 @@ import { cookies } from "next/headers";
 import { getDb } from "../db";
 import { emailOtps, users } from "../db/schema";
 import { sendLoginCodeEmail } from "./email";
+import { hashPassword, passwordProblem, verifyPassword } from "./passwords";
 
 export type AppUser = {
   id: string;
   email: string;
   name: string;
   role: "owner" | "admin" | "customer";
+  sessionVersion: number;
   /** True only after the private administrator access-key sign-in. */
   adminAuthenticated: boolean;
 };
@@ -57,10 +59,10 @@ function adminAccessKeyVersion() {
 /** A single private Hostinger environment value unlocks the admin dashboard. */
 export async function signInAdministratorWithAccessKey(accessKey: string) {
   if (!sameSecret(accessKey, adminAccessKey())) throw new Error("That admin access key is not correct");
-  return { id: "admin-access-key", email: ownerEmail(), name: "", role: "owner", adminAuthenticated: true } satisfies AppUser;
+  return { id: "admin-access-key", email: ownerEmail(), name: "", role: "owner", sessionVersion: 0, adminAuthenticated: true } satisfies AppUser;
 }
 
-export async function requestEmailCode(emailInput: string, purpose: "sign_in" | "recovery") {
+export async function requestEmailCode(emailInput: string, purpose: "sign_in" | "recovery" | "privacy_delete") {
   const email = normalizeEmail(emailInput);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Enter a valid email address");
   const db = getDb();
@@ -83,7 +85,7 @@ export async function requestEmailCode(emailInput: string, purpose: "sign_in" | 
   return { email };
 }
 
-export async function verifyEmailCode(emailInput: string, codeInput: string, purpose: "sign_in" | "recovery"): Promise<AppUser> {
+export async function verifyEmailCode(emailInput: string, codeInput: string, purpose: "sign_in" | "recovery" | "privacy_delete"): Promise<AppUser> {
   const email = normalizeEmail(emailInput);
   const code = codeInput.replace(/\D/g, "");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{6}$/.test(code)) throw new Error("Enter your email and the 6-digit code");
@@ -100,15 +102,78 @@ export async function verifyEmailCode(emailInput: string, codeInput: string, pur
   const role = email === ownerEmail() ? "owner" : (existing?.role ?? "customer");
   const id = existing?.id ?? crypto.randomUUID();
   if (existing) {
-    await db.update(users).set({ role, emailVerifiedAt: now, updatedAt: now }).where(eq(users.id, existing.id));
+    await db.update(users).set({ role, emailVerifiedAt: now, lastLoginAt: now, updatedAt: now }).where(eq(users.id, existing.id));
   } else {
-    await db.insert(users).values({ id, email, role, emailVerifiedAt: now });
+    await db.insert(users).values({ id, email, role, emailVerifiedAt: now, lastLoginAt: now, sessionVersion: 0 });
   }
-  return { id, email, name: existing?.name ?? "", role, adminAuthenticated: false };
+  return { id, email, name: existing?.name ?? "", role, sessionVersion: existing?.sessionVersion ?? 0, adminAuthenticated: false };
+}
+
+function cleanedName(value: string | undefined) {
+  return (value ?? "").trim().replace(/[<>]/g, "").slice(0, 120);
+}
+
+function validEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+/**
+ * Creates (or upgrades an email-code account to) password sign-in only after
+ * the customer proves control of the mailbox with a one-time code.
+ */
+export async function registerWithVerifiedEmail(emailInput: string, code: string, password: string, nameInput?: string): Promise<AppUser> {
+  const email = normalizeEmail(emailInput);
+  const name = cleanedName(nameInput);
+  if (!validEmail(email)) throw new Error("Enter a valid email address");
+  const problem = passwordProblem(password);
+  if (problem) throw new Error(problem);
+  const db = getDb();
+  const verified = await verifyEmailCode(email, code, "sign_in");
+  const now = dbTime();
+  await db.update(users).set({ name, passwordHash: await hashPassword(password), lastLoginAt: now, updatedAt: now }).where(eq(users.id, verified.id));
+  return { ...verified, name };
+}
+
+export async function signInWithPassword(emailInput: string, password: string): Promise<AppUser> {
+  const email = normalizeEmail(emailInput);
+  if (!validEmail(email) || !password) throw new Error("Email or password is incorrect.");
+  const db = getDb();
+  const [stored] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  if (!stored || !(await verifyPassword(password, stored.passwordHash))) throw new Error("Email or password is incorrect.");
+  const role = email === ownerEmail() ? "owner" : stored.role;
+  const now = dbTime();
+  await db.update(users).set({ role, lastLoginAt: now, updatedAt: now }).where(eq(users.id, stored.id));
+  return { id: stored.id, email, name: stored.name, role, sessionVersion: stored.sessionVersion, adminAuthenticated: false };
+}
+
+/** Recovery remains email-code based so a forgotten password is never sent by email. */
+export async function resetPasswordWithCode(emailInput: string, code: string, password: string): Promise<AppUser> {
+  const email = normalizeEmail(emailInput);
+  const problem = passwordProblem(password);
+  if (problem) throw new Error(problem);
+  const db = getDb();
+  const [existing] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  if (!existing) throw new Error("No account was found for this email. Create an account instead.");
+  const user = await verifyEmailCode(email, code, "recovery");
+  const now = dbTime();
+  await db.update(users).set({ passwordHash: await hashPassword(password), lastLoginAt: now, updatedAt: now }).where(eq(users.id, user.id));
+  return { ...user, name: existing.name };
+}
+
+export async function setPasswordForCurrentUser(user: AppUser, password: string, currentPassword?: string) {
+  const problem = passwordProblem(password);
+  if (problem) throw new Error(problem);
+  const db = getDb();
+  const [stored] = await db.select({ id: users.id, passwordHash: users.passwordHash }).from(users).where(eq(users.id, user.id)).limit(1);
+  if (!stored) throw new Error("Your account could not be found. Please sign in again.");
+  if (stored.passwordHash && !(await verifyPassword(currentPassword ?? "", stored.passwordHash))) {
+    throw new Error("Your current password is not correct.");
+  }
+  await db.update(users).set({ passwordHash: await hashPassword(password), updatedAt: dbTime() }).where(eq(users.id, user.id));
 }
 
 export async function signSession(user: AppUser) {
-  const payload: { email: string; name: string; adminAuthenticated: boolean; adminKeyVersion?: string } = { email: user.email, name: user.name, adminAuthenticated: user.adminAuthenticated };
+  const payload: { email: string; name: string; sessionVersion: number; adminAuthenticated: boolean; adminKeyVersion?: string } = { email: user.email, name: user.name, sessionVersion: user.sessionVersion, adminAuthenticated: user.adminAuthenticated };
   if (user.adminAuthenticated) payload.adminKeyVersion = adminAccessKeyVersion();
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
@@ -137,20 +202,24 @@ export async function currentUser(): Promise<AppUser | null> {
         email,
         name: typeof payload.name === "string" ? payload.name : "",
         role: "owner",
+        sessionVersion: 0,
         adminAuthenticated: true,
       };
     }
 
     const db = getDb();
     const [stored] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    if (!stored) return null;
+    if (typeof payload.sessionVersion !== "number" || payload.sessionVersion !== stored.sessionVersion) return null;
     // Never trust an old role embedded in a cookie. This makes removing someone
     // from the admin list take effect immediately, even on their existing device.
-    const role = email === ownerEmail() ? "owner" : (stored?.role ?? "customer");
+    const role = email === ownerEmail() ? "owner" : stored.role;
     return {
-      id: stored?.id ?? payload.sub,
+      id: stored.id,
       email,
-      name: stored?.name ?? (typeof payload.name === "string" ? payload.name : ""),
+      name: stored.name || (typeof payload.name === "string" ? payload.name : ""),
       role,
+      sessionVersion: stored.sessionVersion,
       adminAuthenticated,
     };
   } catch {

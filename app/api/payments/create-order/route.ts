@@ -8,6 +8,7 @@ import { cancelPendingOrderAndRelease, releaseExpiredReservations } from "../../
 import { businessConfiguration } from "../../../../lib/business";
 import { checkRateLimit, clientAddress, rateLimitResponse } from "../../../../lib/rate-limit";
 import { normalizeCountryCode } from "../../../../lib/locations";
+import { errorCode, recordEvent } from "../../../../lib/logging";
 
 type CheckoutItemPayload = { productId?: string; size?: string; quantity?: number };
 type CheckoutPayload = {
@@ -40,6 +41,7 @@ type ReservedItem = {
   variantId: number;
   size: string;
   quantity: number;
+  packedWeightGrams: number;
 };
 
 class ReservationError extends Error {}
@@ -124,10 +126,10 @@ async function createOrder(request: Request) {
 
   try {
     await releaseExpiredReservations();
-  } catch {
+  } catch (error) {
     // Cleanup is maintenance work. A cleanup failure must not turn a new
     // customer checkout into an empty 500 response.
-    console.error("Expired reservation cleanup failed");
+    await recordEvent({ severity: "warning", eventType: "checkout.reservation_cleanup_failed", detail: errorCode(error) });
   }
   const db = getDb();
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -140,18 +142,21 @@ async function createOrder(request: Request) {
       productId: products.id,
       productName: products.name,
       pricePaise: products.pricePaise,
+      packedWeightGrams: products.packedWeightGrams,
       status: products.status,
       variantId: productVariants.id,
       variantActive: productVariants.active,
     }).from(products).innerJoin(productVariants, eq(productVariants.productId, products.id)).where(and(eq(products.id, requested.productId), eq(productVariants.size, requested.size))).limit(1);
     if (!selection || selection.status !== "active" || !selection.variantActive) return Response.json({ error: "One of the selected items is no longer available" }, { status: 409 });
+    if (selection.packedWeightGrams <= 0) return Response.json({ error: "This product is not yet configured for delivery. Please message Sana for a shipping quote before payment.", code: "MANUAL_SHIPPING_QUOTE_REQUIRED" }, { status: 409 });
     selected.push({ ...selection, size: requested.size, quantity: requested.quantity });
   }
 
   const subtotalPaise = selected.reduce((sum, item) => sum + item.pricePaise * item.quantity, 0);
+  const cartWeightGrams = selected.reduce((sum, item) => sum + item.packedWeightGrams * item.quantity, 0);
   const coupon = await couponDiscount(payload.couponCode, subtotalPaise);
   if (coupon.error) return Response.json({ error: coupon.error }, { status: 400 });
-  const serviceability = await shippingForDestination(validated.customer.countryCode, validated.customer.postalCode, subtotalPaise);
+  const serviceability = await shippingForDestination(validated.customer.countryCode, validated.customer.postalCode, { cartWeightGrams, state: validated.customer.state });
   if (!serviceability.serviceable) {
     if (serviceability.manualQuoteRequired) {
       return Response.json({ error: serviceability.note, code: "MANUAL_SHIPPING_QUOTE_REQUIRED" }, { status: 409 });
@@ -212,6 +217,7 @@ async function createOrder(request: Request) {
     });
   } catch (error) {
     if (error instanceof ReservationError) return Response.json({ error: error.message }, { status: 409 });
+    await recordEvent({ severity: "error", eventType: "checkout.reservation_failed", detail: errorCode(error) });
     return Response.json({ error: "We could not reserve your bag. Please try again." }, { status: 500 });
   }
 
@@ -232,12 +238,14 @@ async function createOrder(request: Request) {
   }
   if (!razorpayOrder?.id || razorpayOrder.amount !== totalPaise || razorpayOrder.currency !== "INR") {
     await cancelPendingOrderAndRelease(localOrderId, true);
+    await recordEvent({ severity: "error", eventType: "checkout.payment_order_unavailable", entityType: "order", entityId: localOrderId });
     return Response.json({ error: "Payment service is temporarily unavailable. Please try again." }, { status: 502 });
   }
   try {
     await db.update(orders).set({ razorpayOrderId: razorpayOrder.id, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(orders.id, localOrderId));
   } catch {
     await cancelPendingOrderAndRelease(localOrderId, true);
+    await recordEvent({ severity: "error", eventType: "checkout.payment_order_save_failed", entityType: "order", entityId: localOrderId });
     return Response.json({ error: "We could not finish preparing the payment. Please try again." }, { status: 500 });
   }
   return Response.json({
@@ -248,6 +256,8 @@ async function createOrder(request: Request) {
     amount: totalPaise,
     subtotalPaise,
     shippingPaise,
+    cartWeightGrams: serviceability.cartWeightGrams,
+    billedWeightGrams: serviceability.billedWeightGrams,
     discountPaise: coupon.discountPaise,
     currency: "INR",
     productName: selected.length === 1 ? selected[0].productName : `${selected.length} items from Classy Apparels`,
@@ -259,10 +269,7 @@ export async function POST(request: Request) {
     return await createOrder(request);
   } catch (error) {
     const databaseError = error as { name?: string; code?: string; cause?: { code?: string } };
-    console.error("Checkout order creation failed", {
-      name: databaseError.name || "Error",
-      code: databaseError.code || databaseError.cause?.code || "UNKNOWN",
-    });
+    await recordEvent({ severity: "error", eventType: "checkout.order_creation_failed", detail: errorCode(databaseError) });
     return Response.json(
       { error: "Checkout is temporarily unavailable. Please try again; no payment was taken." },
       { status: 500, headers: { "cache-control": "no-store" } },

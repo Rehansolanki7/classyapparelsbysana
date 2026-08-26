@@ -4,6 +4,8 @@ import { orderItems, orders, productVariants } from "../../../../db/schema";
 import { rejectUnlessAdmin } from "../../../../lib/admin-auth";
 import { sendPaidOrderNotifications } from "../../../../lib/order-notifications";
 import { cancelPendingOrderAndRelease, finalizeCapturedOrder } from "../../../../lib/orders";
+import { recordEvent } from "../../../../lib/logging";
+import { currentUser } from "../../../../lib/auth";
 
 const allowed = new Set(["paid", "processing", "shipped", "delivered", "cancelled"]);
 const transitions: Record<string, Set<string>> = {
@@ -55,13 +57,28 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const rejected = await rejectUnlessAdmin(request);
   if (rejected) return rejected;
-  let payload: { id?: string; status?: string; courierName?: string; trackingNumber?: string; trackingUrl?: string };
+  let payload: { id?: string; status?: string; courierName?: string; trackingNumber?: string; trackingUrl?: string; legalHold?: boolean };
   try {
     payload = await request.json() as typeof payload;
   } catch {
     return Response.json({ error: "Invalid order update" }, { status: 400 });
   }
-  if (!payload.id || !payload.status || !allowed.has(payload.status)) return Response.json({ error: "Invalid order update" }, { status: 400 });
+  if (!payload.id) return Response.json({ error: "Invalid order update" }, { status: 400 });
+
+  const db = getDb();
+  const [order] = await db.select().from(orders).where(eq(orders.id, payload.id)).limit(1);
+  if (!order) return Response.json({ error: "Order not found" }, { status: 404 });
+  // Legal holds are allowed on any historic order, including refunded records
+  // that intentionally have no normal fulfilment transition left.
+  if ((!payload.status || !allowed.has(payload.status)) && typeof payload.legalHold === "boolean") {
+    await db.update(orders).set({ legalHold: payload.legalHold, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(orders.id, order.id));
+    if (payload.legalHold !== order.legalHold) {
+      const user = await currentUser();
+      await recordEvent({ severity: "security", eventType: payload.legalHold ? "admin.order_legal_hold_enabled" : "admin.order_legal_hold_removed", actorId: user?.id, entityType: "order", entityId: order.id });
+    }
+    return Response.json({ ok: true });
+  }
+  if (!payload.status || !allowed.has(payload.status)) return Response.json({ error: "Invalid order update" }, { status: 400 });
 
   const courierName = clean(payload.courierName, 100);
   const trackingNumber = clean(payload.trackingNumber, 120);
@@ -71,9 +88,6 @@ export async function PATCH(request: Request) {
     return Response.json({ error: "Courier name and tracking number are required before marking an order shipped." }, { status: 400 });
   }
 
-  const db = getDb();
-  const [order] = await db.select().from(orders).where(eq(orders.id, payload.id)).limit(1);
-  if (!order) return Response.json({ error: "Order not found" }, { status: 404 });
   if (!transitions[order.status]?.has(payload.status)) {
     return Response.json({ error: `An order cannot move from ${order.status} to ${payload.status}.` }, { status: 409 });
   }
@@ -96,11 +110,16 @@ export async function PATCH(request: Request) {
       courierName,
       trackingNumber,
       trackingUrl,
+      legalHold: typeof payload.legalHold === "boolean" ? payload.legalHold : order.legalHold,
       shippedAt: status === "shipped" ? sql`COALESCE(${orders.shippedAt}, CURRENT_TIMESTAMP)` : undefined,
       deliveredAt: status === "delivered" ? sql`COALESCE(${orders.deliveredAt}, CURRENT_TIMESTAMP)` : undefined,
       updatedAt: sql`CURRENT_TIMESTAMP`,
     })
     .where(eq(orders.id, payload.id));
+  if (typeof payload.legalHold === "boolean" && payload.legalHold !== order.legalHold) {
+    const user = await currentUser();
+    await recordEvent({ severity: "security", eventType: payload.legalHold ? "admin.order_legal_hold_enabled" : "admin.order_legal_hold_removed", actorId: user?.id, entityType: "order", entityId: order.id });
+  }
   return Response.json({ ok: true });
 }
 

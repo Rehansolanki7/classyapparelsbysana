@@ -4,6 +4,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const postalCode = url.searchParams.get("postalCode") ?? url.searchParams.get("pincode") ?? "";
   const countryCode = url.searchParams.get("countryCode") ?? "IN";
-  const subtotalPaise = Math.max(0, Math.min(10_000_000, Number(url.searchParams.get("subtotalPaise") ?? 0)));
-  return Response.json(await shippingForDestination(countryCode, postalCode, subtotalPaise), { headers: { "cache-control": "no-store" } });
+  const cartWeightGrams = Math.max(0, Math.min(50_000, Math.ceil(Number(url.searchParams.get("cartWeightGrams") ?? 0))));
+  const state = (url.searchParams.get("state") ?? "").slice(0, 100);
+  return Response.json(await shippingForDestination(countryCode, postalCode, { cartWeightGrams, state }), { headers: { "cache-control": "no-store" } });
 }

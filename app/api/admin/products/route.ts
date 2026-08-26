@@ -73,6 +73,7 @@ export async function PATCH(request: Request) {
     fabric?: string;
     includes?: string;
     care?: string;
+    packedWeightGrams?: number;
     primaryImage?: string;
     images?: string[];
     variants?: Array<{ id: number; stock: number; active?: boolean }>;
@@ -82,8 +83,10 @@ export async function PATCH(request: Request) {
 
   const pricePaise = Math.round(Number(payload.price) * 100);
   const compareAtPaise = Math.round(Number(payload.compareAt) * 100);
+  const packedWeightGrams = Math.floor(Number(payload.packedWeightGrams));
   if (!Number.isFinite(pricePaise) || pricePaise < 0 || pricePaise > 10_000_000) return Response.json({ error: "Enter a valid price" }, { status: 400 });
   if (!Number.isFinite(compareAtPaise) || compareAtPaise < 0 || compareAtPaise > 10_000_000) return Response.json({ error: "Enter a valid compare-at price" }, { status: 400 });
+  if (!Number.isFinite(packedWeightGrams) || packedWeightGrams < 0 || packedWeightGrams > 50_000) return Response.json({ error: "Enter a valid packed shipping weight in grams." }, { status: 400 });
 
   const db = getDb();
   const [existing] = await db.select({ id: products.id, primaryImage: products.primaryImage }).from(products).where(eq(products.id, payload.id)).limit(1);
@@ -97,6 +100,7 @@ export async function PATCH(request: Request) {
   const primaryImage = images[0] ?? "";
   if (payload.status === "active" && pricePaise <= 0) return Response.json({ error: "An active product needs a price greater than zero." }, { status: 400 });
   if (payload.status === "active" && !primaryImage) return Response.json({ error: "Add at least one product image before publishing." }, { status: 400 });
+  if (payload.status === "active" && packedWeightGrams <= 0) return Response.json({ error: "Add the accurate packed shipping weight before publishing this product." }, { status: 400 });
 
   const existingVariants = await db
     .select({ id: productVariants.id, stock: productVariants.stock, active: productVariants.active })
@@ -133,6 +137,7 @@ export async function PATCH(request: Request) {
       fabric: payload.fabric?.trim().slice(0, 160) || "",
       includes: payload.includes?.trim().slice(0, 300) || "",
       care: payload.care?.trim().slice(0, 500) || "",
+      packedWeightGrams,
       primaryImage,
       updatedAt: sql`CURRENT_TIMESTAMP`,
     }).where(eq(products.id, existing.id));
