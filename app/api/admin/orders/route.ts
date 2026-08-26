@@ -75,7 +75,7 @@ export async function PATCH(request: Request) {
     return Response.json({ error: "Use the refund action for a paid order so the customer is refunded safely." }, { status: 400 });
   }
   if (payload.status === "cancelled" && order.status === "pending_payment") {
-    await cancelPendingOrderAndRelease(order.id);
+    await cancelPendingOrderAndRelease(order.id, false, true);
     return Response.json({ ok: true });
   }
 

@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   if (!order) return Response.json({ ok: true });
   if (order.email !== user.email) return Response.json({ error: "This checkout does not belong to this account." }, { status: 403 });
 
-  const released = await cancelPendingOrderAndRelease(order.id);
+  const released = await cancelPendingOrderAndRelease(order.id, false, true);
   if (released) await recordEvent({ severity: "info", eventType: "checkout.reservation_released_by_customer", actorId: user.id, entityType: "order", entityId: order.id });
   return Response.json({ ok: true, released });
 }

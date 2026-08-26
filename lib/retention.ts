@@ -3,8 +3,13 @@ import { getDb } from "../db";
 import { addresses, emailOtps, orders, privacyRequests, restockSubscriptions, retentionActions, systemEvents, users, wishlistItems } from "../db/schema";
 import { sendInactivityReminderEmail } from "./email";
 import { errorCode, recordEvent } from "./logging";
+import { cancelPendingOrderAndRelease } from "./orders";
 
 const DAY = 24 * 60 * 60 * 1000;
+// Razorpay documents rare late authorisations and automatic reversal of an
+// uncaptured payment within three days. Keep only a non-personal payment stub
+// for four days so a late capture can still be reconciled/refunded.
+const UNPAID_CHECKOUT_RETENTION_DAYS = 4;
 const dbTime = (date: Date) => date.toISOString().slice(0, 19).replace("T", " ");
 const olderThan = (days: number) => dbTime(new Date(Date.now() - days * DAY));
 const monthsAgo = (months: number) => {
@@ -47,9 +52,12 @@ export async function runRetentionCleanup(): Promise<CleanupSummary> {
   } catch (error) { summary.failures += 1; await audit("otp_cleanup", "email_otp", "batch", "failed", errorCode(error)); }
 
   try {
-    const expired = await db.select({ id: orders.id, legalHold: orders.legalHold }).from(orders).where(and(lt(orders.createdAt, olderThan(30)), or(eq(orders.status, "pending_payment"), eq(orders.status, "payment_failed"), eq(orders.status, "cancelled")), ne(orders.paymentStatus, "captured"))).limit(100);
+    const expired = await db.select({ id: orders.id, legalHold: orders.legalHold }).from(orders).where(and(lt(orders.createdAt, olderThan(UNPAID_CHECKOUT_RETENTION_DAYS)), or(eq(orders.status, "pending_payment"), eq(orders.status, "payment_failed"), eq(orders.status, "cancelled")), ne(orders.paymentStatus, "captured"))).limit(100);
     for (const order of expired) {
       if (order.legalHold) { summary.skippedLegalHolds += 1; await audit("checkout_cleanup", "order", order.id, "skipped", "legal_hold"); continue; }
+      // Older pending records may pre-date the usual expiry job. Release any
+      // reservation before deleting them so cleanup cannot strand stock.
+      await cancelPendingOrderAndRelease(order.id, false, true);
       const deleted = await db.delete(orders).where(and(eq(orders.id, order.id), eq(orders.legalHold, false)));
       if (Number(deleted[0]?.affectedRows ?? 0)) { summary.checkoutRecords += 1; await audit("checkout_cleanup", "order", order.id, "completed"); }
     }

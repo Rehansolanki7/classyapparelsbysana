@@ -6,6 +6,7 @@ export type CaptureResult = "captured" | "already_captured" | "refund_required" 
 
 class InventoryConflict extends Error {}
 class CouponConflict extends Error {}
+class CancelledCheckoutConflict extends Error {}
 
 function affected(result: unknown) {
   return Number((result as Array<{ affectedRows?: number }>)[0]?.affectedRows ?? 0);
@@ -24,6 +25,13 @@ export async function finalizeCapturedOrder(orderId: string, paymentId: string, 
         return "already_captured";
       }
       if (order.paymentStatus === "refunded" || order.status === "refunded") return "ignored";
+      // Razorpay can very rarely report an authorization after the browser
+      // session was dismissed. A cancelled checkout must never become a
+      // fulfilment order; retain the minimal payment link long enough to issue
+      // an automatic refund instead.
+      if (order.status === "cancelled") {
+        throw new CancelledCheckoutConflict("Automatic refund required: payment was captured after checkout was cancelled");
+      }
 
       const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
       if (!items.length) throw new InventoryConflict("Paid order has no line items");
@@ -37,8 +45,19 @@ export async function finalizeCapturedOrder(orderId: string, paymentId: string, 
           razorpaySignature: paymentSignature || undefined,
           updatedAt: sql`CURRENT_TIMESTAMP`,
         })
-        .where(and(eq(orders.id, orderId), ne(orders.paymentStatus, "captured"), ne(orders.paymentStatus, "refunded")));
-      if (!affected(claimed)) return "already_captured";
+        .where(and(
+          eq(orders.id, orderId),
+          or(eq(orders.status, "pending_payment"), eq(orders.status, "payment_failed")),
+          ne(orders.paymentStatus, "captured"),
+          ne(orders.paymentStatus, "refunded"),
+        ));
+      if (!affected(claimed)) {
+        const [current] = await tx.select({ status: orders.status, paymentStatus: orders.paymentStatus }).from(orders).where(eq(orders.id, orderId)).limit(1);
+        if (current?.status === "cancelled") {
+          throw new CancelledCheckoutConflict("Automatic refund required: payment was captured after checkout was cancelled");
+        }
+        return current?.paymentStatus === "captured" ? "already_captured" : "ignored";
+      }
 
       const hasActiveReservation = order.status === "pending_payment" || order.status === "payment_failed";
       for (const item of items) {
@@ -81,7 +100,7 @@ export async function finalizeCapturedOrder(orderId: string, paymentId: string, 
       return "captured";
     });
   } catch (error) {
-    if (!(error instanceof InventoryConflict) && !(error instanceof CouponConflict)) throw error;
+    if (!(error instanceof InventoryConflict) && !(error instanceof CouponConflict) && !(error instanceof CancelledCheckoutConflict)) throw error;
 
     // The payment exists at Razorpay but inventory could not be fulfilled. Record it
     // durably so an administrator can issue an idempotent refund instead of losing it.
@@ -139,7 +158,12 @@ export async function markPaymentAttemptFailed(orderId: string, paymentId = "") 
   return affected(updated) > 0;
 }
 
-export async function cancelPendingOrderAndRelease(orderId: string, failed = false) {
+/**
+ * Removes an unpaid checkout from customer-facing data. We retain only its
+ * Razorpay/local IDs and amount for a short reconciliation period, because a
+ * bank can complete an authorization after the customer closes Checkout.
+ */
+export async function cancelPendingOrderAndRelease(orderId: string, failed = false, redactCustomerData = false) {
   const db = getDb();
   return db.transaction(async (tx) => {
     const claimed = await tx
@@ -147,6 +171,19 @@ export async function cancelPendingOrderAndRelease(orderId: string, failed = fal
       .set({
         status: failed ? "payment_failed" : "cancelled",
         paymentStatus: failed ? "failed" : undefined,
+        customerName: redactCustomerData ? "Cancelled checkout" : undefined,
+        email: redactCustomerData ? `cancelled-${orderId}@invalid.local` : undefined,
+        phone: redactCustomerData ? "" : undefined,
+        addressLine1: redactCustomerData ? "" : undefined,
+        addressLine2: redactCustomerData ? "" : undefined,
+        city: redactCustomerData ? "" : undefined,
+        state: redactCustomerData ? "" : undefined,
+        countryCode: redactCustomerData ? "IN" : undefined,
+        postalCode: redactCustomerData ? "" : undefined,
+        formattedAddress: redactCustomerData ? "" : undefined,
+        deliveryPlaceId: redactCustomerData ? "" : undefined,
+        deliveryLatitude: redactCustomerData ? null : undefined,
+        deliveryLongitude: redactCustomerData ? null : undefined,
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
       .where(and(
@@ -162,6 +199,9 @@ export async function cancelPendingOrderAndRelease(orderId: string, failed = fal
         .set({ reservedStock: sql`GREATEST(0, ${productVariants.reservedStock} - ${item.quantity})` })
         .where(eq(productVariants.id, item.variantId));
     }
+    // The payment/reconciliation stub deliberately has no cart contents or
+    // customer/address data. It is not an order and can never enter history.
+    if (redactCustomerData) await tx.delete(orderItems).where(eq(orderItems.orderId, orderId));
     return true;
   });
 }
@@ -199,6 +239,6 @@ export async function releaseExpiredReservations(limit = 30) {
     ))
     .limit(limit);
   let released = 0;
-  for (const order of expired) if (await cancelPendingOrderAndRelease(order.id)) released += 1;
+  for (const order of expired) if (await cancelPendingOrderAndRelease(order.id, false, true)) released += 1;
   return released;
 }

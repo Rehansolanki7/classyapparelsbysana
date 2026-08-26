@@ -19,3 +19,18 @@ test("payment webhooks bind captured amount and currency before inventory finali
   assert.match(source, /payment\.currency !== "INR"/);
   assert.match(source, /attemptAutomaticRefund/);
 });
+
+test("unpaid checkouts are not customer orders and are scrubbed before short retention", async () => {
+  const [account, orders, retention] = await Promise.all([
+    readFile(new URL("../app/account/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/orders.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/retention.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(account, /eq\(orders\.paymentStatus, "captured"\)/);
+  assert.match(account, /eq\(orders\.paymentStatus, "refunded"\)/);
+  assert.match(orders, /class CancelledCheckoutConflict/);
+  assert.match(orders, /cancelled-\$\{orderId\}@invalid\.local/);
+  assert.match(orders, /tx\.delete\(orderItems\)/);
+  assert.match(retention, /UNPAID_CHECKOUT_RETENTION_DAYS = 4/);
+  assert.match(retention, /cancelPendingOrderAndRelease\(order\.id, false, true\)/);
+});

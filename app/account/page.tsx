@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getDb } from "../../db";
 import { addresses, orderItems, orders, users } from "../../db/schema";
@@ -23,7 +23,12 @@ export default async function AccountPage() {
   try {
     const db = getDb();
     const [rows, addressRows, storedUser] = await Promise.all([
-      db.select().from(orders).where(eq(orders.email, user.email)).orderBy(desc(orders.createdAt)).limit(100),
+      // A checkout attempt is not an order. Only show a record after a charge
+      // exists (or while that charge is being/has been refunded).
+      db.select().from(orders).where(and(
+        eq(orders.email, user.email),
+        or(eq(orders.paymentStatus, "captured"), eq(orders.paymentStatus, "refunded")),
+      )).orderBy(desc(orders.createdAt)).limit(100),
       db.select().from(addresses).where(eq(addresses.userId, user.id)).orderBy(desc(addresses.isDefault), desc(addresses.createdAt)),
       db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, user.id)).limit(1),
     ]);

@@ -248,14 +248,14 @@ async function createOrder(request: Request) {
     // The local reservation is released below.
   }
   if (!razorpayOrder?.id || razorpayOrder.amount !== totalPaise || razorpayOrder.currency !== "INR") {
-    await cancelPendingOrderAndRelease(localOrderId, true);
+    await cancelPendingOrderAndRelease(localOrderId, true, true);
     await recordEvent({ severity: "error", eventType: "checkout.payment_order_unavailable", entityType: "order", entityId: localOrderId });
     return Response.json({ error: "Payment service is temporarily unavailable. Please try again." }, { status: 502 });
   }
   try {
     await db.update(orders).set({ razorpayOrderId: razorpayOrder.id, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(orders.id, localOrderId));
   } catch {
-    await cancelPendingOrderAndRelease(localOrderId, true);
+    await cancelPendingOrderAndRelease(localOrderId, true, true);
     await recordEvent({ severity: "error", eventType: "checkout.payment_order_save_failed", entityType: "order", entityId: localOrderId });
     return Response.json({ error: "We could not finish preparing the payment. Please try again." }, { status: 500 });
   }
