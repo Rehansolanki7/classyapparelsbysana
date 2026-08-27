@@ -91,7 +91,7 @@ export const storefrontSettings = mysqlTable("storefront_settings", {
 export const emailOtps = mysqlTable("email_otps", {
   id: int("id").autoincrement().primaryKey(),
   email: varchar("email", { length: 180 }).notNull(),
-  purpose: mysqlEnum("purpose", ["sign_in", "recovery", "privacy_delete"]).notNull(),
+  purpose: mysqlEnum("purpose", ["sign_in", "recovery", "privacy_delete", "admin_access"]).notNull(),
   codeHash: varchar("code_hash", { length: 64 }).notNull(),
   attempts: int("attempts").notNull().default(0),
   expiresAt: datetime("expires_at", { mode: "string" }).notNull(),

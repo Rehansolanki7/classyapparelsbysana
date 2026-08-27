@@ -36,7 +36,7 @@ async function main() {
     await connection.query("CREATE TABLE IF NOT EXISTS _classy_migrations (version varchar(120) NOT NULL PRIMARY KEY, applied_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP)");
     const [lockRows] = await connection.query("SELECT GET_LOCK('_classy_apparels_migrations', 30) AS acquired");
     if ((lockRows as Array<{ acquired: number }>)[0]?.acquired !== 1) throw new Error("Could not acquire the database migration lock");
-    const migrations = ["0000_public_photon", "0001_release_hardening", "0002_manual_delivery", "0003_customer_experience", "0004_truthful_shipping_privacy", "0005_shipping_seed_fix", "0006_refund_restock", "0007_homepage_editor", "0008_managed_categories"];
+    const migrations = ["0000_public_photon", "0001_release_hardening", "0002_manual_delivery", "0003_customer_experience", "0004_truthful_shipping_privacy", "0005_shipping_seed_fix", "0006_refund_restock", "0007_homepage_editor", "0008_managed_categories", "0009_admin_mfa"];
     for (const version of migrations) {
       const [queryRows] = await connection.query("SELECT version FROM _classy_migrations WHERE version = ?", [version]);
       const rows = queryRows as Array<{ version: string }>;

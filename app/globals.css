@@ -727,6 +727,7 @@ footer a:hover, footer button:hover { color: white; }
 .admin-user strong { overflow: hidden; text-overflow: ellipsis; font-size: 11px; white-space: nowrap; }
 .admin-user small { overflow: hidden; margin-top: 3px; color: #9da9a8; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .admin-user a { grid-column: 2; color: #9da9a8; font-size: 9px; }
+.admin-mobile-menu, .admin-menu-backdrop, .admin-mobile-drawer { display: none; }
 .admin-main { min-width: 0; padding: 42px clamp(28px, 5vw, 72px) 80px; }
 .admin-topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; }
 .admin-topbar .kicker { margin-bottom: 10px; }
@@ -970,16 +971,32 @@ footer a:hover, footer button:hover { color: white; }
 }
 
 @media (max-width: 850px) {
-  .admin-shell { display: block; padding-bottom: 72px; }
-  .admin-sidebar { position: fixed; top: auto; right: 0; bottom: 0; left: 0; z-index: 50; height: 67px; flex-direction: row; padding: 7px 8px; }
-  .admin-brand, .admin-user { display: none; }
-  .admin-sidebar nav { width: 100%; display: flex; gap: 2px; margin: 0; overflow-x: auto; padding-right: 10px; scroll-snap-type: x proximity; scrollbar-width: thin; touch-action: pan-x; }
-  .admin-sidebar nav button { min-width: 72px; min-height: 53px; flex: 0 0 72px; justify-content: center; padding: 3px; font-size: 8px; text-align: center; scroll-snap-align: start; }
-  .admin-sidebar nav button small { display: none; }
+  .admin-shell { display: block; }
+  .admin-sidebar { display: none; }
   .admin-main { padding: 30px 18px 60px; }
   .admin-topbar { align-items: flex-start; }
   .admin-topbar h1 { font-size: 42px; }
   .admin-topbar .admin-view-store { display: none; }
+  .admin-mobile-menu { min-height: 40px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--ink); padding: 0 12px; background: var(--ink); color: white; cursor: pointer; font: 700 9px var(--sans); letter-spacing: .08em; text-transform: uppercase; }
+  .admin-mobile-menu span { font-size: 16px; line-height: 1; }
+  .admin-menu-backdrop { position: fixed; inset: 0; z-index: 60; display: block; border: 0; background: rgba(18, 35, 37, .54); cursor: pointer; }
+  .admin-mobile-drawer { position: fixed; inset: 0 auto 0 0; z-index: 61; width: min(86vw, 340px); display: flex; flex-direction: column; padding: 24px 17px 19px; background: var(--ink); color: white; box-shadow: 20px 0 45px rgba(0, 0, 0, .24); }
+  .admin-mobile-drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 0 8px 22px; border-bottom: 1px solid rgba(255,255,255,.14); }
+  .admin-mobile-drawer-header > div { display: flex; flex-direction: column; gap: 5px; }
+  .admin-mobile-drawer-header span { font-family: var(--serif); font-size: 28px; }
+  .admin-mobile-drawer-header small { color: var(--aqua); font-size: 9px; font-style: italic; letter-spacing: .12em; text-transform: uppercase; }
+  .admin-mobile-menu-close { border: 0; border-bottom: 1px solid currentColor; padding: 4px 0; background: transparent; color: #cdd7d5; cursor: pointer; font: 700 9px var(--sans); letter-spacing: .07em; text-transform: uppercase; }
+  .admin-mobile-drawer nav { display: flex; flex: 1; flex-direction: column; gap: 5px; margin-top: 21px; overflow-y: auto; }
+  .admin-mobile-drawer nav button { min-height: 47px; display: flex; align-items: center; justify-content: space-between; border: 0; border-radius: 4px; padding: 0 13px; background: transparent; color: #bcc6c5; cursor: pointer; font-size: 12px; text-align: left; }
+  .admin-mobile-drawer nav button:hover, .admin-mobile-drawer nav button.active { background: rgba(174,216,217,.13); color: white; }
+  .admin-mobile-drawer nav button small { min-width: 22px; height: 22px; display: grid; place-items: center; border-radius: 12px; background: rgba(255,255,255,.1); font-size: 9px; }
+  .admin-mobile-drawer-user { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 18px 8px 0; border-top: 1px solid rgba(255,255,255,.12); }
+  .admin-mobile-drawer-user > span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--aqua); color: var(--ink); font-family: var(--serif); }
+  .admin-mobile-drawer-user div { min-width: 0; display: flex; flex-direction: column; }
+  .admin-mobile-drawer-user strong, .admin-mobile-drawer-user small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .admin-mobile-drawer-user strong { font-size: 11px; }
+  .admin-mobile-drawer-user small { margin-top: 3px; color: #9da9a8; font-size: 8px; }
+  .admin-mobile-drawer-user a { grid-column: 2; color: #9da9a8; font-size: 9px; }
   .category-admin-intro { grid-template-columns: 1fr; }
   .product-admin-layout { grid-template-columns: 1fr; }
   .coupon-admin-layout { grid-template-columns: 1fr; }
@@ -1025,7 +1042,6 @@ footer a:hover, footer button:hover { color: white; }
   .import-grid, .settings-grid { grid-template-columns: 1fr; }
   .security-note { grid-column: auto; }
   .storefront-editor { grid-column: auto; }
-  .admin-sidebar nav button { font-size: 7px; }
   .admin-access-card > div { flex-direction: column; }
   .storefront-fields { grid-template-columns: 1fr; }
   .storefront-fields label.wide { grid-column: auto; }
@@ -1477,6 +1493,9 @@ footer a:hover, footer button:hover { color: white; }
 .auth-notice { margin: 0; padding: 12px; background: #e2efed; color: var(--ink); font-size: 12px; line-height: 1.45; }
 .auth-links { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 22px; color: var(--aqua-deep); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .auth-links button, .auth-links a { border: 0; border-bottom: 1px solid currentColor; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.auth-inline-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 15px; }
+.auth-inline-actions .text-link { border: 0; border-bottom: 1px solid currentColor; padding: 0; background: transparent; color: var(--aqua-deep); cursor: pointer; font: 700 9px var(--sans); letter-spacing: .06em; text-transform: uppercase; }
+.auth-inline-actions .text-link:disabled { cursor: not-allowed; opacity: .5; }
 .auth-card label small { color: var(--ink-soft); font-size: 10px; line-height: 1.35; }
 .auth-notice.error { background: #f7e4e1; color: #7b2929; }
 .delivery-note { display: block; margin-top: 7px; color: var(--aqua-deep); font-family: var(--serif); font-size: 11px; line-height: 1.35; }

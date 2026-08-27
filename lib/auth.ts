@@ -4,7 +4,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { getDb } from "../db";
 import { emailOtps, users } from "../db/schema";
-import { sendLoginCodeEmail } from "./email";
+import { mailConfigured, sendLoginCodeEmail } from "./email";
 import { hashPassword, passwordProblem, verifyPassword } from "./passwords";
 
 export type AppUser = {
@@ -13,10 +13,11 @@ export type AppUser = {
   name: string;
   role: "owner" | "admin" | "customer";
   sessionVersion: number;
-  /** True only after the private administrator access-key sign-in. */
+  /** True only after the private administrator access key and email PIN both pass. */
   adminAuthenticated: boolean;
 };
 export const SESSION_COOKIE = "classy_apparels_session";
+export type EmailCodePurpose = "sign_in" | "recovery" | "privacy_delete" | "admin_access";
 
 function dbTime(date = new Date()) {
   return date.toISOString().slice(0, 19).replace("T", " ");
@@ -40,6 +41,17 @@ export function ownerEmail() {
   return normalizeEmail(process.env.OWNER_EMAIL ?? "shop@classyapparelsbysana.com");
 }
 
+/**
+ * Admin MFA deliberately has no fallback mailbox. A missing or malformed
+ * owner email must leave the private workspace inaccessible rather than send
+ * a PIN to a guessed/default address.
+ */
+function adminOwnerEmail() {
+  const email = normalizeEmail(process.env.OWNER_EMAIL ?? "");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("OWNER_EMAIL must be a valid owner mailbox");
+  return email;
+}
+
 function sameSecret(left: string, right: string) {
   const leftDigest = createHash("sha256").update(left).digest();
   const rightDigest = createHash("sha256").update(right).digest();
@@ -56,13 +68,21 @@ function adminAccessKeyVersion() {
   return createHash("sha256").update(adminAccessKey()).digest("base64url");
 }
 
-/** A single private Hostinger environment value unlocks the admin dashboard. */
-export async function signInAdministratorWithAccessKey(accessKey: string) {
-  if (!sameSecret(accessKey, adminAccessKey())) throw new Error("That admin access key is not correct");
-  return { id: "admin-access-key", email: ownerEmail(), name: "", role: "owner", sessionVersion: 0, adminAuthenticated: true } satisfies AppUser;
+function assertAdminMfaConfigured() {
+  const email = adminOwnerEmail();
+  adminAccessKey();
+  secret();
+  if (!mailConfigured()) throw new Error("Administrator email verification is not configured");
+  return email;
 }
 
-export async function requestEmailCode(emailInput: string, purpose: "sign_in" | "recovery" | "privacy_delete") {
+/** Validates factor one only. It never creates a browser session by itself. */
+export async function signInAdministratorWithAccessKey(accessKey: string) {
+  if (!sameSecret(accessKey, adminAccessKey())) throw new Error("That admin access key is not correct");
+  return { id: "admin-access-key", email: adminOwnerEmail(), name: "", role: "owner", sessionVersion: 0, adminAuthenticated: true } satisfies AppUser;
+}
+
+export async function requestEmailCode(emailInput: string, purpose: EmailCodePurpose) {
   const email = normalizeEmail(emailInput);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Enter a valid email address");
   const db = getDb();
@@ -85,7 +105,7 @@ export async function requestEmailCode(emailInput: string, purpose: "sign_in" | 
   return { email };
 }
 
-export async function verifyEmailCode(emailInput: string, codeInput: string, purpose: "sign_in" | "recovery" | "privacy_delete"): Promise<AppUser> {
+async function consumeEmailCode(emailInput: string, codeInput: string, purpose: EmailCodePurpose) {
   const email = normalizeEmail(emailInput);
   const code = codeInput.replace(/\D/g, "");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{6}$/.test(code)) throw new Error("Enter your email and the 6-digit code");
@@ -98,6 +118,12 @@ export async function verifyEmailCode(emailInput: string, codeInput: string, pur
   }
   const now = dbTime();
   await db.update(emailOtps).set({ usedAt: now }).where(eq(emailOtps.id, otp.id));
+  return { email, now };
+}
+
+export async function verifyEmailCode(emailInput: string, codeInput: string, purpose: Exclude<EmailCodePurpose, "admin_access">): Promise<AppUser> {
+  const { email, now } = await consumeEmailCode(emailInput, codeInput, purpose);
+  const db = getDb();
   const [existing] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   const role = email === ownerEmail() ? "owner" : (existing?.role ?? "customer");
   const id = existing?.id ?? crypto.randomUUID();
@@ -107,6 +133,21 @@ export async function verifyEmailCode(emailInput: string, codeInput: string, pur
     await db.insert(users).values({ id, email, role, emailVerifiedAt: now, lastLoginAt: now, sessionVersion: 0 });
   }
   return { id, email, name: existing?.name ?? "", role, sessionVersion: existing?.sessionVersion ?? 0, adminAuthenticated: false };
+}
+
+/** Sends a PIN only after factor one succeeds and only to the configured owner. */
+export async function requestAdministratorPin(accessKey: string) {
+  await signInAdministratorWithAccessKey(accessKey);
+  const email = assertAdminMfaConfigured();
+  await requestEmailCode(email, "admin_access");
+}
+
+/** Returns an admin identity only when the access key and single-use PIN both pass. */
+export async function verifyAdministratorWithPin(accessKey: string, code: string): Promise<AppUser> {
+  const user = await signInAdministratorWithAccessKey(accessKey);
+  const email = assertAdminMfaConfigured();
+  await consumeEmailCode(email, code, "admin_access");
+  return user;
 }
 
 function cleanedName(value: string | undefined) {
@@ -179,7 +220,7 @@ export async function signSession(user: AppUser) {
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(user.id)
     .setIssuedAt()
-    .setExpirationTime(user.adminAuthenticated ? "12h" : "30d")
+    .setExpirationTime(user.adminAuthenticated ? "8h" : "30d")
     .sign(secret());
 }
 
@@ -194,12 +235,11 @@ export async function currentUser(): Promise<AppUser | null> {
     if (typeof payload.sub !== "string" || typeof payload.email !== "string") return null;
     const email = normalizeEmail(payload.email);
 
-    // The private access-key login is intentionally independent of MySQL.
-    // It must continue to work even if a customer-data query is temporarily
-    // unavailable. Its signature and the current key fingerprint are checked,
-    // so this does not trust an arbitrary browser cookie.
+    // An already-verified administrator session is intentionally independent
+    // of customer-data queries. Its signature and the current key fingerprint
+    // are checked, so this does not trust an arbitrary browser cookie.
     const adminAuthenticated = payload.adminAuthenticated === true && typeof payload.adminKeyVersion === "string" && sameSecret(payload.adminKeyVersion, adminAccessKeyVersion());
-    if (adminAuthenticated && email === ownerEmail()) {
+    if (adminAuthenticated && email === adminOwnerEmail()) {
       return {
         id: payload.sub,
         email,
@@ -231,7 +271,7 @@ export async function currentUser(): Promise<AppUser | null> {
 }
 
 export function sessionCookie(value: string, administrator = false) {
-  return { name: SESSION_COOKIE, value, options: { httpOnly: true, sameSite: "lax" as const, secure: process.env.NODE_ENV === "production", path: "/", maxAge: administrator ? 60 * 60 * 12 : 60 * 60 * 24 * 30 } };
+  return { name: SESSION_COOKIE, value, options: { httpOnly: true, sameSite: "lax" as const, secure: process.env.NODE_ENV === "production", path: "/", maxAge: administrator ? 60 * 60 * 8 : 60 * 60 * 24 * 30 } };
 }
 
 export function deleteSessionCookie() {

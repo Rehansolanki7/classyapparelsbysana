@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useOverlayDialog } from "../components/use-overlay-dialog";
 import type { AppUser } from "../../lib/auth";
 import type { CatalogProduct } from "../../lib/catalog";
 import type { ManagedCategory } from "../../lib/categories";
@@ -271,6 +272,7 @@ export default function AdminDashboard({
   initialShippingConfiguration: { cards: ShippingRateCard[]; pincodeRules: PincodeRule[]; handlingPaise: number };
 }) {
   const [tab, setTab] = useState<Tab>("overview");
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [products, setProducts] = useState(initialProducts);
   const [categories, setCategories] = useState(initialCategories);
   const [categoryEdits, setCategoryEdits] = useState<Record<string, string>>({});
@@ -294,6 +296,8 @@ export default function AdminDashboard({
   const [pinRules, setPinRules] = useState(initialShippingConfiguration.pincodeRules);
   const [simpleShippingRates, setSimpleShippingRates] = useState<SimpleShippingRates>(() => simpleShippingRatesFromCards(initialShippingConfiguration.cards));
   const [shippingPreview, setShippingPreview] = useState<{ zone: ShippingZone; weightGrams: number }>({ zone: "maharashtra", weightGrams: 500 });
+  const closeAdminMenu = useCallback(() => setAdminMenuOpen(false), []);
+  const adminMenuDialogRef = useOverlayDialog<HTMLElement>(adminMenuOpen, closeAdminMenu, "[data-admin-menu-close]");
   const pendingImports = imports.filter((item) => item.status === "pending");
   const totalStock = products.reduce((sum, product) => sum + product.variants.reduce((variantSum, variant) => variantSum + variant.stock, 0), 0);
   const productsMissingShippingWeight = products.filter((product) => product.status === "active" && product.packedWeightGrams <= 0).length;
@@ -354,7 +358,10 @@ export default function AdminDashboard({
   }
 
   function changeTab(nextTab: Tab) {
-    if (nextTab === tab || confirmDiscardChanges()) setTab(nextTab);
+    if (nextTab === tab) return true;
+    if (!confirmDiscardChanges()) return false;
+    setTab(nextTab);
+    return true;
   }
 
   function selectProduct(id: string) {
@@ -819,8 +826,13 @@ export default function AdminDashboard({
     { id: "settings", label: "Site controls" },
   ];
 
+  function changeMobileTab(nextTab: Tab) {
+    if (changeTab(nextTab)) closeAdminMenu();
+  }
+
   return (
     <main className="admin-shell">
+      {adminMenuOpen && <><button className="admin-menu-backdrop" aria-label="Close Admin menu" onClick={closeAdminMenu} /><aside id="admin-mobile-menu" ref={adminMenuDialogRef} className="admin-mobile-drawer" role="dialog" aria-modal="true" aria-labelledby="admin-mobile-menu-title" tabIndex={-1}><div className="admin-mobile-drawer-header"><div><span id="admin-mobile-menu-title">Admin menu</span><small>Classy Apparels</small></div><button type="button" className="admin-mobile-menu-close" data-admin-menu-close onClick={closeAdminMenu}>Close</button></div><nav aria-label="Admin sections">{nav.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => changeMobileTab(item.id)}><span>{item.label}</span>{item.count !== undefined && <small>{item.count}</small>}</button>)}</nav><div className="admin-mobile-drawer-user"><span>{(user.name || user.email).slice(0, 1).toUpperCase()}</span><div><strong>{user.name || user.email}</strong><small>{user.email}</small></div><a href={signOutPath}>Sign out</a></div></aside></>}
       <aside className="admin-sidebar">
         <Link className="admin-brand" href="/"><span>Classy Apparels</span></Link>
         <nav>{nav.map((item) => <button key={item.id} className={tab === item.id ? "active" : ""} onClick={() => changeTab(item.id)}><span>{item.label}</span>{item.count !== undefined && <small>{item.count}</small>}</button>)}</nav>
@@ -828,7 +840,7 @@ export default function AdminDashboard({
       </aside>
 
       <section className="admin-main">
-        <header className="admin-topbar"><div><p className="kicker">Sana’s private workspace</p><h1>{nav.find((item) => item.id === tab)?.label}</h1>{hasUnsavedChanges && <span className="admin-unsaved">Unsaved changes</span>}</div><div><Link className="admin-view-store" href="/" target="_blank">View store ↗</Link>{tab === "products" && <button className="button button-dark" onClick={addProduct} disabled={busy}>+ New product</button>}{tab === "coupons" && <button className="button button-dark" onClick={addCoupon} disabled={busy}>+ New coupon</button>}</div></header>
+        <header className="admin-topbar"><div><p className="kicker">Sana’s private workspace</p><h1>{nav.find((item) => item.id === tab)?.label}</h1>{hasUnsavedChanges && <span className="admin-unsaved">Unsaved changes</span>}</div><div><button type="button" className="admin-mobile-menu" aria-expanded={adminMenuOpen} aria-controls="admin-mobile-menu" onClick={() => setAdminMenuOpen(true)}><span aria-hidden="true">☰</span> Menu</button><Link className="admin-view-store" href="/" target="_blank">View store ↗</Link>{tab === "products" && <button className="button button-dark" onClick={addProduct} disabled={busy}>+ New product</button>}{tab === "coupons" && <button className="button button-dark" onClick={addCoupon} disabled={busy}>+ New coupon</button>}</div></header>
         {notice && <div className="admin-notice" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
 
         {tab === "overview" && <div className="admin-overview">

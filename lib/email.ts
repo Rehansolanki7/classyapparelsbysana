@@ -25,12 +25,15 @@ export async function sendMail(payload: { to: string; subject: string; html: str
   await transporter.sendMail({ from, to: payload.to, subject: payload.subject, html: payload.html, replyTo: payload.replyTo });
 }
 
-export async function sendLoginCodeEmail(email: string, code: string, purpose: "sign_in" | "recovery" | "privacy_delete") {
-  const label = purpose === "recovery" ? "account recovery" : purpose === "privacy_delete" ? "privacy request" : "sign in";
+export async function sendLoginCodeEmail(email: string, code: string, purpose: "sign_in" | "recovery" | "privacy_delete" | "admin_access") {
+  const label = purpose === "recovery" ? "account recovery" : purpose === "privacy_delete" ? "privacy request" : purpose === "admin_access" ? "administrator verification" : "sign in";
+  const instruction = purpose === "admin_access"
+    ? "Use this one-time code together with your private Admin access key to open Classy Apparels Admin Studio."
+    : `Use this one-time code to ${label} to your Classy Apparels account.`;
   await sendMail({
     to: email,
     subject: `${code} is your Classy Apparels ${label} code`,
-    html: `<div style="font-family:Arial,sans-serif;color:#223133;max-width:520px"><h1 style="font-family:Georgia,serif;font-weight:400">Your ${label} code</h1><p>Use this one-time code to ${label} to your Classy Apparels account.</p><p style="font-size:32px;letter-spacing:7px;font-weight:700;margin:24px 0">${code}</p><p>This code expires in 10 minutes. If you did not request it, you can safely ignore this email.</p></div>`,
+    html: `<div style="font-family:Arial,sans-serif;color:#223133;max-width:520px"><h1 style="font-family:Georgia,serif;font-weight:400">Your ${label} code</h1><p>${instruction}</p><p style="font-size:32px;letter-spacing:7px;font-weight:700;margin:24px 0">${code}</p><p>This code expires in 10 minutes. If you did not request it, you can safely ignore this email.</p></div>`,
   });
 }
 
