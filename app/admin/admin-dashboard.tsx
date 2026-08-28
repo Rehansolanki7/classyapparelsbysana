@@ -93,6 +93,8 @@ type SimpleShippingRate = { customerPrice: number; deliveryDaysMin: number; deli
 type SimpleShippingRates = Record<ShippingZone, SimpleShippingRate>;
 
 type Tab = "overview" | "products" | "categories" | "instagram" | "orders" | "activity" | "coupons" | "shipping" | "settings";
+type ProductField = "name" | "price" | "compareAt" | "categoryId" | "packedWeightGrams" | "images";
+type ProductFieldErrors = Partial<Record<ProductField, string>>;
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 2400;
@@ -215,6 +217,37 @@ function emptyCouponDraft(): CouponDraft {
   return { code: "", type: "percentage", value: 10, minOrder: 0, maxDiscount: "", startsAt: "", endsAt: "", usageLimit: "", active: true, usageCount: 0 };
 }
 
+function validateProduct(product: CatalogProduct, categories: ManagedCategory[]): ProductFieldErrors {
+  const errors: ProductFieldErrors = {};
+  const selectedCategory = categories.find((category) => category.id === product.categoryId);
+
+  if (!product.name.trim()) errors.name = "Product name is required.";
+  if (!Number.isFinite(product.price) || product.price < 0 || product.price > 100_000) errors.price = "Enter a valid selling price.";
+  if (!Number.isFinite(product.compareAt) || product.compareAt < 0 || product.compareAt > 100_000) errors.compareAt = "Enter a valid compare-at price.";
+  if (!Number.isFinite(product.packedWeightGrams) || product.packedWeightGrams < 0 || product.packedWeightGrams > 50_000) {
+    errors.packedWeightGrams = "Enter a packed weight from 0 to 50,000 g.";
+  }
+
+  if (product.status === "active") {
+    if (product.price <= 0) errors.price = "An active product needs a price greater than ₹0.";
+    if (!product.images.length) errors.images = "Add at least one product image before publishing.";
+    if (product.packedWeightGrams <= 0) errors.packedWeightGrams = "Add the packed shipping weight before publishing.";
+    if (!selectedCategory || !selectedCategory.active) errors.categoryId = "Choose an active category before publishing.";
+  }
+
+  return errors;
+}
+
+function productErrorsFromServer(message: string): ProductFieldErrors {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("price")) return { price: message };
+  if (normalized.includes("image") || normalized.includes("photo")) return { images: message };
+  if (normalized.includes("weight")) return { packedWeightGrams: message };
+  if (normalized.includes("categor")) return { categoryId: message };
+  if (normalized.includes("compare-at")) return { compareAt: message };
+  return {};
+}
+
 function couponToDraft(coupon: CouponItem): CouponDraft {
   return {
     id: coupon.id,
@@ -282,6 +315,7 @@ export default function AdminDashboard({
   const [coupons, setCoupons] = useState(initialCoupons);
   const [selectedId, setSelectedId] = useState(initialProducts[0]?.id ?? "");
   const [draft, setDraft] = useState<CatalogProduct | null>(initialProducts[0] ?? null);
+  const [productErrors, setProductErrors] = useState<ProductFieldErrors>({});
   const [selectedCouponId, setSelectedCouponId] = useState(initialCoupons[0]?.id ?? "");
   const [couponDraft, setCouponDraft] = useState<CouponDraft>(() => initialCoupons[0] ? couponToDraft(initialCoupons[0]) : emptyCouponDraft());
   const [notice, setNotice] = useState("");
@@ -369,25 +403,51 @@ export default function AdminDashboard({
     const product = products.find((item) => item.id === id) ?? null;
     setSelectedId(id);
     setDraft(product ? structuredClone(product) : null);
+    setProductErrors({});
     setNotice("");
+  }
+
+  function updateProduct(field: ProductField, update: (product: CatalogProduct) => CatalogProduct) {
+    setDraft((current) => current ? update(current) : current);
+    setProductErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
   }
 
   async function saveProduct() {
     if (!draft) return;
+    const errors = validateProduct(draft, categories);
+    if (Object.keys(errors).length) {
+      setProductErrors(errors);
+      setNotice("Please fix the highlighted product fields before saving.");
+      window.requestAnimationFrame(() => document.querySelector<HTMLElement>(".product-editor [aria-invalid='true']")?.focus());
+      return;
+    }
     setBusy(true);
     setNotice("");
-    const response = await fetch("/api/admin/products", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(draft),
-    });
-    const result = (await response.json()) as { error?: string; slug?: string };
-    if (!response.ok) setNotice(result.error || "Could not save this product");
-    else {
-      const saved = { ...structuredClone(draft), slug: result.slug ?? draft.slug };
-      setDraft(saved);
-      setProducts((current) => current.map((item) => item.id === draft.id ? saved : item));
-      setNotice(`Saved. Storefront link: /products/${saved.slug}`);
+    try {
+      const response = await fetch("/api/admin/products", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string; slug?: string };
+      if (!response.ok) {
+        const message = result.error || "Could not save this product";
+        setProductErrors(productErrorsFromServer(message));
+        setNotice(message);
+      } else {
+        const saved = { ...structuredClone(draft), slug: result.slug ?? draft.slug };
+        setDraft(saved);
+        setProducts((current) => current.map((item) => item.id === draft.id ? saved : item));
+        setProductErrors({});
+        setNotice(`Saved. Storefront link: /products/${saved.slug}`);
+      }
+    } catch {
+      setNotice("Could not save this product. Check your connection and try again.");
     }
     setBusy(false);
   }
@@ -427,6 +487,12 @@ export default function AdminDashboard({
     }
     if (uploaded.length) {
       setDraft((current) => current ? { ...current, images: [...current.images, ...uploaded].slice(0, 12) } : current);
+      setProductErrors((current) => {
+        if (!current.images) return current;
+        const next = { ...current };
+        delete next.images;
+        return next;
+      });
       setNotice(`${uploaded.length} photo${uploaded.length === 1 ? "" : "s"} added. Save the product to publish the gallery.`);
     }
     setBusy(false);
@@ -841,7 +907,7 @@ export default function AdminDashboard({
 
       <section className="admin-main">
         <header className="admin-topbar"><div><p className="kicker">Sana’s private workspace</p><h1>{nav.find((item) => item.id === tab)?.label}</h1>{hasUnsavedChanges && <span className="admin-unsaved">Unsaved changes</span>}</div><div><button type="button" className="admin-mobile-menu" aria-expanded={adminMenuOpen} aria-controls="admin-mobile-menu" onClick={() => setAdminMenuOpen(true)}><span aria-hidden="true">☰</span> Menu</button><Link className="admin-view-store" href="/" target="_blank">View store ↗</Link>{tab === "products" && <button className="button button-dark" onClick={addProduct} disabled={busy}>+ New product</button>}{tab === "coupons" && <button className="button button-dark" onClick={addCoupon} disabled={busy}>+ New coupon</button>}</div></header>
-        {notice && <div className="admin-notice" role="status">{notice}<button onClick={() => setNotice("")}>×</button></div>}
+        {notice && <div className={`admin-notice${Object.keys(productErrors).length ? " error" : ""}`} role={Object.keys(productErrors).length ? "alert" : "status"}>{notice}<button onClick={() => setNotice("")}>×</button></div>}
 
         {tab === "overview" && <div className="admin-overview">
           <div className="metric-grid"><article><span>Products</span><strong>{products.length}</strong><small>{products.filter((item) => item.status === "active").length} live</small></article><article><span>Units in stock</span><strong>{totalStock}</strong><small>Across every size</small></article><article><span>Shipping setup</span><strong>{productsMissingShippingWeight}</strong><small>{productsMissingShippingWeight ? "live product(s) need packed weight" : "Every live product is weighted"}</small></article><article><span>Captured revenue</span><strong>{rupees(revenue)}</strong><small>{paidOrders.length} paid orders</small></article></div>
@@ -888,12 +954,60 @@ export default function AdminDashboard({
           <div className="product-list"><div className="product-list-search">Products · {products.length}</div>{products.map((product) => <button key={product.id} className={selectedId === product.id ? "active" : ""} onClick={() => selectProduct(product.id)}><img src={product.images[0] || "/products/sea-mist-01.webp"} alt="" /><div><strong>{product.name}</strong><span>{rupees(product.price)} · {product.status}</span></div><small>{product.variants.reduce((sum, variant) => sum + variant.stock, 0)}</small></button>)}</div>
           {draft && selected && <div className="product-editor">
             <div className="editor-heading"><div><p className="kicker">{draft.source === "instagram" ? "Instagram draft" : "Product details"}</p><h2>{draft.name}</h2></div><span className={`status-pill ${draft.status}`}>{draft.status}</span></div>
-            <div className="editor-photo-manager">
+            <div className={`editor-photo-manager${productErrors.images ? " field-invalid" : ""}`}>
               <div className="editor-photo-heading"><div><strong>Product photo gallery</strong><p>Upload up to 12 phone photos at once. The first photo is the storefront cover.</p></div><label className="upload-button">+ Add photos<input type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={(event) => event.target.files && uploadImages(event.target.files)} /></label></div>
               <div className="editor-photo-grid">{draft.images.map((image, index) => <article key={`${image}-${index}`} className={index === 0 ? "primary" : ""}><img src={image} alt={`${draft.name}, admin view ${index + 1}`} /><span>{index === 0 ? "Cover" : `Photo ${index + 1}`}</span><div>{index > 0 && <button type="button" onClick={() => makePrimary(index)}>Set cover</button>}<button type="button" onClick={() => moveImage(index, -1)} disabled={index === 0} aria-label="Move photo earlier">←</button><button type="button" onClick={() => moveImage(index, 1)} disabled={index === draft.images.length - 1} aria-label="Move photo later">→</button><button type="button" className="remove" onClick={() => removeImage(index)}>Remove</button></div></article>)}</div>
               {!draft.images.length && <div className="editor-photo-empty">No photos yet. Add clear front, back and detail views before publishing.</div>}
+              {productErrors.images && <small className="field-error" id="product-images-error" role="alert">{productErrors.images}</small>}
             </div>
-            <div className="editor-fields"><label className="wide"><span>Product name</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label><span>Selling price (₹)</span><input type="number" min="0" value={draft.price} onChange={(event) => setDraft({ ...draft, price: Number(event.target.value) })} /></label><label><span>Compare-at price (₹)</span><input type="number" min="0" value={draft.compareAt} onChange={(event) => setDraft({ ...draft, compareAt: Number(event.target.value) })} /></label><label><span>Product category</span><select value={draft.categoryId ?? ""} onChange={(event) => { const category = categories.find((item) => item.id === event.target.value); setDraft({ ...draft, categoryId: category?.id ?? null, category: category?.name ?? "", categorySlug: category?.slug ?? "" }); }}><option value="">Choose before publishing</option>{categories.filter((category) => category.active || category.id === draft.categoryId).map((category) => <option value={category.id} key={category.id}>{category.name}{category.active ? "" : " · archived"}</option>)}</select><small>Only active categories can be published.</small></label><label><span>Packed shipping weight (g)</span><input type="number" min="1" max="50000" value={draft.packedWeightGrams || ""} onChange={(event) => setDraft({ ...draft, packedWeightGrams: Number(event.target.value) })} /><small>Garment plus packaging. Required to publish.</small></label><label><span>Colour</span><input value={draft.color} onChange={(event) => setDraft({ ...draft, color: event.target.value })} /></label><label><span>Fabric</span><input value={draft.fabric} onChange={(event) => setDraft({ ...draft, fabric: event.target.value })} /></label><label className="wide"><span>What is included</span><input value={draft.includes} onChange={(event) => setDraft({ ...draft, includes: event.target.value })} /></label><label className="wide"><span>Description</span><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={5} /></label></div>
+            <div className="editor-fields">
+              <label className={`wide${productErrors.name ? " field-invalid" : ""}`}>
+                <span>Product name</span>
+                <input value={draft.name} onChange={(event) => updateProduct("name", (product) => ({ ...product, name: event.target.value }))} aria-invalid={Boolean(productErrors.name)} aria-describedby={productErrors.name ? "product-name-error" : undefined} />
+                {productErrors.name && <small className="field-error" id="product-name-error" role="alert">{productErrors.name}</small>}
+              </label>
+              <label className={productErrors.price ? "field-invalid" : ""}>
+                <span>Selling price (₹)</span>
+                <input type="number" min="0" value={draft.price} onChange={(event) => updateProduct("price", (product) => ({ ...product, price: Number(event.target.value) }))} aria-invalid={Boolean(productErrors.price)} aria-describedby={productErrors.price ? "product-price-error" : undefined} />
+                {productErrors.price && <small className="field-error" id="product-price-error" role="alert">{productErrors.price}</small>}
+              </label>
+              <label className={productErrors.compareAt ? "field-invalid" : ""}>
+                <span>Compare-at price (₹)</span>
+                <input type="number" min="0" value={draft.compareAt} onChange={(event) => updateProduct("compareAt", (product) => ({ ...product, compareAt: Number(event.target.value) }))} aria-invalid={Boolean(productErrors.compareAt)} aria-describedby={productErrors.compareAt ? "product-compare-at-error" : undefined} />
+                {productErrors.compareAt && <small className="field-error" id="product-compare-at-error" role="alert">{productErrors.compareAt}</small>}
+              </label>
+              <label className={productErrors.categoryId ? "field-invalid" : ""}>
+                <span>Product category</span>
+                <select value={draft.categoryId ?? ""} onChange={(event) => updateProduct("categoryId", (product) => { const category = categories.find((item) => item.id === event.target.value); return { ...product, categoryId: category?.id ?? null, category: category?.name ?? "", categorySlug: category?.slug ?? "" }; })} aria-invalid={Boolean(productErrors.categoryId)} aria-describedby={productErrors.categoryId ? "product-category-error" : "product-category-help"}>
+                  <option value="">Choose before publishing</option>
+                  {categories.filter((category) => category.active || category.id === draft.categoryId).map((category) => <option value={category.id} key={category.id}>{category.name}{category.active ? "" : " · archived"}</option>)}
+                </select>
+                <small id="product-category-help">Only active categories can be published.</small>
+                {productErrors.categoryId && <small className="field-error" id="product-category-error" role="alert">{productErrors.categoryId}</small>}
+              </label>
+              <label className={productErrors.packedWeightGrams ? "field-invalid" : ""}>
+                <span>Packed shipping weight (g)</span>
+                <input type="number" min="1" max="50000" value={draft.packedWeightGrams || ""} onChange={(event) => updateProduct("packedWeightGrams", (product) => ({ ...product, packedWeightGrams: Number(event.target.value) }))} aria-invalid={Boolean(productErrors.packedWeightGrams)} aria-describedby={productErrors.packedWeightGrams ? "product-weight-error" : "product-weight-help"} />
+                <small id="product-weight-help">Garment plus packaging. Required to publish.</small>
+                {productErrors.packedWeightGrams && <small className="field-error" id="product-weight-error" role="alert">{productErrors.packedWeightGrams}</small>}
+              </label>
+              <label>
+                <span>Colour</span>
+                <input value={draft.color} onChange={(event) => setDraft({ ...draft, color: event.target.value })} />
+              </label>
+              <label>
+                <span>Fabric</span>
+                <input value={draft.fabric} onChange={(event) => setDraft({ ...draft, fabric: event.target.value })} />
+              </label>
+              <label className="wide">
+                <span>What is included</span>
+                <input value={draft.includes} onChange={(event) => setDraft({ ...draft, includes: event.target.value })} />
+              </label>
+              <label className="wide">
+                <span>Description</span>
+                <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={5} />
+              </label>
+            </div>
             <div className="inventory-editor"><div><h3>Size inventory</h3><p>Stock reaches the storefront immediately after saving.</p></div><div className="variant-grid">{draft.variants.map((variant, index) => <label key={variant.id}><span>{variant.size}</span><input type="number" min="0" max="9999" value={variant.stock} onChange={(event) => { const variants = [...draft.variants]; variants[index] = { ...variant, stock: Number(event.target.value) }; setDraft({ ...draft, variants }); }} /></label>)}</div></div>
             <div className="editor-publish"><label><span>Visibility</span><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as CatalogProduct["status"] })}><option value="draft">Draft — hidden from customers</option><option value="active">Active — visible and purchasable</option><option value="archived">Archived</option></select></label><label className="feature-toggle"><input type="checkbox" checked={draft.featured} onChange={(event) => setDraft({ ...draft, featured: event.target.checked })} /><span>Feature on home page</span></label><button className="button button-dark" onClick={saveProduct} disabled={busy}>{busy ? "Saving…" : "Save product"}</button></div>
           </div>}
