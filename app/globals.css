@@ -771,6 +771,25 @@ footer a:hover, footer button:hover { color: white; }
 .admin-topbar h1 { margin: 0; font-family: var(--serif); font-size: 52px; font-weight: 400; letter-spacing: -.04em; }
 .admin-unsaved { display: inline-block; margin-top: 9px; padding: 5px 8px; background: #f5ead8; color: #805d22; font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .admin-topbar > div:last-child { display: flex; align-items: center; gap: 18px; }
+.admin-notification-wrap { position: relative; }
+.admin-notification-button { position: relative; width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--line); background: var(--paper); color: var(--ink); cursor: pointer; }
+.admin-notification-button:hover, .admin-notification-button[aria-expanded="true"] { border-color: var(--aqua-deep); background: #e3efed; }
+.admin-notification-button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; }
+.admin-notification-button > span { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: #b24b4b; color: white; font-size: 8px; font-weight: 700; }
+.admin-notification-panel { position: absolute; top: calc(100% + 12px); right: 0; z-index: 30; width: min(390px, calc(100vw - 36px)); padding: 17px; border: 1px solid var(--line); background: var(--paper); box-shadow: 0 18px 40px rgba(18, 35, 37, .16); }
+.admin-notification-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.admin-notification-heading strong { font-family: var(--serif); font-size: 22px; font-weight: 400; }
+.admin-notification-heading small { color: var(--ink-soft); font-size: 8px; letter-spacing: .07em; text-transform: uppercase; }
+.admin-notification-group { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--line); }
+.admin-notification-group > p { margin: 0 0 2px; color: var(--ink-soft); font-size: 8px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.admin-notification-item { width: 100%; display: flex; align-items: flex-start; gap: 10px; border: 0; border-bottom: 1px solid var(--line); padding: 11px 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.admin-notification-item:hover { color: var(--aqua-deep); }
+.admin-notification-icon { flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: #e3efed; color: var(--aqua-deep); font-size: 12px; font-weight: 700; }
+.admin-notification-icon.stock { background: #f7e5e2; color: #9a4755; }
+.admin-notification-item > span:last-child { min-width: 0; display: grid; gap: 3px; }
+.admin-notification-item strong { overflow: hidden; font-family: var(--serif); font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.admin-notification-item small { color: var(--ink-soft); font-size: 9px; line-height: 1.35; }
+.admin-notification-empty { margin: 18px 0 2px; color: var(--ink-soft); font-family: var(--serif); font-size: 14px; }
 .admin-view-store { border-bottom: 1px solid currentColor; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .admin-notice { position: relative; margin-top: 24px; padding: 14px 45px 14px 16px; border-left: 3px solid var(--aqua-deep); background: #e0eeeb; font-family: var(--serif); font-size: 14px; }
 .categories-admin { max-width: 1080px; margin-top: 38px; }
@@ -809,24 +828,8 @@ footer a:hover, footer button:hover { color: white; }
 .admin-card-heading .kicker { margin-bottom: 8px; }
 .admin-card-heading h2, .integration-banner h2, .admin-empty h2, .editor-heading h2, .settings-grid h2 { margin: 0; font-family: var(--serif); font-size: 28px; font-weight: 400; }
 .admin-card-heading > button { border: 0; border-bottom: 1px solid currentColor; padding: 0; background: transparent; cursor: pointer; font-size: 10px; }
-.low-stock-alert { display: grid; grid-template-columns: minmax(230px, .8fr) 1.2fr; gap: 25px; margin-top: 16px; border-left: 4px solid #b24b4b; padding: 22px 25px; background: #f7e5e2; }
-.low-stock-alert h2 { margin: 4px 0 8px; font-family: var(--serif); font-size: 29px; font-weight: 400; }
-.low-stock-alert p:not(.kicker) { margin: 0; color: #75464a; font-family: var(--serif); font-size: 13px; line-height: 1.45; }
-.low-stock-alert-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-content: start; }
-.low-stock-alert-list > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid rgba(154,71,85,.18); padding: 0 0 8px; }
-.low-stock-alert-list strong { overflow: hidden; font-family: var(--serif); font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
-.low-stock-alert-list span { flex: 0 0 auto; color: #9a4755; font-size: 8px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.low-stock-alert-list span.out { color: #762d37; }
-.low-stock-alert-list .button { grid-column: 1 / -1; justify-self: start; margin-top: 5px; }
-.payment-alert { display: grid; grid-template-columns: minmax(230px, .8fr) 1.2fr; gap: 25px; margin-top: 16px; border-left: 4px solid var(--aqua-deep); padding: 22px 25px; background: #e3efed; }
-.payment-alert h2 { margin: 4px 0 8px; font-family: var(--serif); font-size: 29px; font-weight: 400; }
-.payment-alert p:not(.kicker) { margin: 0; color: #426b6b; font-family: var(--serif); font-size: 13px; line-height: 1.45; }
-.payment-alert-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-content: start; }
-.payment-alert-list > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid rgba(64,112,111,.2); padding: 0 0 8px; }
-.payment-alert-list strong { overflow: hidden; font-family: var(--serif); font-size: 14px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
-.payment-alert-list span { flex: 0 0 auto; color: #40706f; font-size: 9px; font-weight: 700; letter-spacing: .06em; }
-.payment-alert-list .button { grid-column: 1 / -1; justify-self: start; margin-top: 5px; }
-.attention-row { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.attention-row { width: 100%; display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 12px; border-right: 0; border-bottom: 0; border-left: 0; padding: 12px 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.attention-row:hover { background: #eef4f1; }
 .attention-row img { width: 52px; height: 62px; object-fit: contain; background: #e8efed; }
 .attention-row > div { display: flex; flex-direction: column; gap: 5px; }
 .attention-row > div strong { font-family: var(--serif); font-size: 14px; font-weight: 400; }
@@ -1030,8 +1033,6 @@ footer a:hover, footer button:hover { color: white; }
 @media (max-width: 1180px) {
   .metric-grid { grid-template-columns: 1fr 1fr; }
   .admin-two-col { grid-template-columns: 1fr; }
-  .low-stock-alert { grid-template-columns: 1fr; }
-  .payment-alert { grid-template-columns: 1fr; }
   .product-admin-layout { grid-template-columns: 220px 1fr; }
   .coupon-admin-layout { grid-template-columns: 220px 1fr; }
   .variant-grid { grid-template-columns: repeat(4, 1fr); }
@@ -1047,6 +1048,7 @@ footer a:hover, footer button:hover { color: white; }
   .admin-main { padding: 30px 18px 60px; }
   .admin-topbar { align-items: flex-start; }
   .admin-topbar h1 { font-size: 42px; }
+  .admin-notification-panel { position: fixed; top: 72px; right: 18px; }
   .admin-topbar .admin-view-store { display: none; }
   .admin-mobile-menu { min-height: 40px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--ink); padding: 0 12px; background: var(--ink); color: white; cursor: pointer; font: 700 9px var(--sans); letter-spacing: .08em; text-transform: uppercase; }
   .admin-mobile-menu span { font-size: 16px; line-height: 1; }
@@ -1103,10 +1105,6 @@ footer a:hover, footer button:hover { color: white; }
   .category-admin-list > article { grid-template-columns: auto 1fr; gap: 14px; padding: 16px; }
   .category-meta { grid-column: 2; padding-bottom: 0; }
   .category-actions { grid-column: 1 / -1; justify-content: space-between; padding-top: 3px; }
-  .low-stock-alert-list { grid-template-columns: 1fr; }
-  .low-stock-alert-list .button { grid-column: auto; }
-  .payment-alert-list { grid-template-columns: 1fr; }
-  .payment-alert-list .button { grid-column: auto; }
   .coupon-fields { grid-template-columns: 1fr; }
   .coupon-fields label.wide { grid-column: auto; }
   .coupon-editor-footer { grid-template-columns: 1fr auto; margin: 25px -20px -20px; padding: 18px 20px; }

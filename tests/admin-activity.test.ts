@@ -23,7 +23,9 @@ test("admin overview surfaces active products that need restocking", async () =>
   const dashboard = await readFile(new URL("../app/admin/admin-dashboard.tsx", import.meta.url), "utf8");
   assert.match(dashboard, /LOW_STOCK_THRESHOLD = 5/);
   assert.match(dashboard, /lowStockProducts/);
-  assert.match(dashboard, /className="low-stock-alert"/);
+  assert.match(dashboard, /admin-notification-panel/);
+  assert.match(dashboard, /admin-notification-icon stock/);
+  assert.match(dashboard, /openProduct\(product\.id\)/);
   assert.match(dashboard, /Out of stock/);
 });
 
@@ -31,8 +33,16 @@ test("admin overview alerts on captured paid orders waiting for fulfilment", asy
   const dashboard = await readFile(new URL("../app/admin/admin-dashboard.tsx", import.meta.url), "utf8");
   assert.match(dashboard, /paidOrderAlerts = orders\.filter/);
   assert.match(dashboard, /Payment received/);
-  assert.match(dashboard, /className="payment-alert"/);
-  assert.match(dashboard, /Open paid orders/);
+  assert.match(dashboard, /admin-notification-icon payment/);
+  assert.match(dashboard, /notificationCount/);
+  assert.match(dashboard, /setOrderFilter\("to_pack"\)/);
+});
+
+test("admin product rows open the selected product editor", async () => {
+  const dashboard = await readFile(new URL("../app/admin/admin-dashboard.tsx", import.meta.url), "utf8");
+  assert.match(dashboard, /function openProduct\(id: string\)/);
+  assert.match(dashboard, /className="attention-row" key=\{product\.id\} onClick=\{\(\) => openProduct\(product\.id\)\}/);
+  assert.match(dashboard, /setTab\("products"\)/);
 });
 
 test("admin refreshes orders while the overview is open", async () => {

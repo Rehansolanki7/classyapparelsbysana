@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useOverlayDialog } from "../components/use-overlay-dialog";
 import type { AppUser } from "../../lib/auth";
@@ -319,6 +319,7 @@ export default function AdminDashboard({
 }) {
   const [tab, setTab] = useState<Tab>("overview");
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [products, setProducts] = useState(initialProducts);
   const [categories, setCategories] = useState(initialCategories);
   const [categoryEdits, setCategoryEdits] = useState<Record<string, string>>({});
@@ -346,10 +347,12 @@ export default function AdminDashboard({
   const [shippingPreview, setShippingPreview] = useState<{ zone: ShippingZone; weightGrams: number }>({ zone: "maharashtra", weightGrams: 500 });
   const closeAdminMenu = useCallback(() => setAdminMenuOpen(false), []);
   const adminMenuDialogRef = useOverlayDialog<HTMLElement>(adminMenuOpen, closeAdminMenu, "[data-admin-menu-close]");
+  const notificationRef = useRef<HTMLDivElement>(null);
   const pendingImports = imports.filter((item) => item.status === "pending");
   const totalStock = products.reduce((sum, product) => sum + product.variants.filter((variant) => variant.active).reduce((variantSum, variant) => variantSum + variant.stock, 0), 0);
   const lowStockProducts = products.filter((product) => product.status === "active").map((product) => ({ product, stock: product.variants.filter((variant) => variant.active).reduce((sum, variant) => sum + variant.stock, 0) })).filter(({ stock }) => stock < LOW_STOCK_THRESHOLD);
   const paidOrderAlerts = orders.filter((order) => isFulfillableOrder(order) && order.status === "paid");
+  const notificationCount = lowStockProducts.length + paidOrderAlerts.length;
   const productsMissingShippingWeight = products.filter((product) => product.status === "active" && product.packedWeightGrams <= 0).length;
   const paidOrders = orders.filter(isFulfillableOrder);
   const revenue = paidOrders.reduce((sum, order) => sum + order.totalPaise / 100, 0);
@@ -426,6 +429,15 @@ export default function AdminDashboard({
     return () => { active = false; window.clearInterval(interval); };
   }, [tab]);
 
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) setNotificationsOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [notificationsOpen]);
+
   function confirmDiscardChanges() {
     return !hasUnsavedChanges || window.confirm("You have unsaved changes. Discard them?");
   }
@@ -444,6 +456,17 @@ export default function AdminDashboard({
     setDraft(product ? structuredClone(product) : null);
     setProductErrors({});
     setNotice("");
+  }
+
+  function openProduct(id: string) {
+    const product = products.find((item) => item.id === id) ?? null;
+    if (!product || !confirmDiscardChanges()) return;
+    setSelectedId(id);
+    setDraft(structuredClone(product));
+    setProductErrors({});
+    setNotice("");
+    setTab("products");
+    setNotificationsOpen(false);
   }
 
   function updateProduct(field: ProductField, update: (product: CatalogProduct) => CatalogProduct) {
@@ -967,14 +990,12 @@ export default function AdminDashboard({
       </aside>
 
       <section className="admin-main">
-        <header className="admin-topbar"><div><p className="kicker">Sana’s private workspace</p><h1>{nav.find((item) => item.id === tab)?.label}</h1>{hasUnsavedChanges && <span className="admin-unsaved">Unsaved changes</span>}</div><div><button type="button" className="admin-mobile-menu" aria-expanded={adminMenuOpen} aria-controls="admin-mobile-menu" onClick={() => setAdminMenuOpen(true)}><span aria-hidden="true">☰</span> Menu</button><Link className="admin-view-store" href="/" target="_blank">View store ↗</Link>{tab === "products" && <button className="button button-dark" onClick={addProduct} disabled={busy}>+ New product</button>}{tab === "coupons" && <button className="button button-dark" onClick={addCoupon} disabled={busy}>+ New coupon</button>}</div></header>
+        <header className="admin-topbar"><div><p className="kicker">Sana’s private workspace</p><h1>{nav.find((item) => item.id === tab)?.label}</h1>{hasUnsavedChanges && <span className="admin-unsaved">Unsaved changes</span>}</div><div><div className="admin-notification-wrap" ref={notificationRef}><button type="button" className={`admin-notification-button${notificationCount ? " has-notifications" : ""}`} onClick={() => setNotificationsOpen((current) => !current)} aria-label={notificationCount ? `${notificationCount} notifications` : "Notifications"} aria-expanded={notificationsOpen} aria-controls="admin-notification-panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>{notificationCount > 0 && <span>{notificationCount > 9 ? "9+" : notificationCount}</span>}</button>{notificationsOpen && <div id="admin-notification-panel" className="admin-notification-panel" role="dialog" aria-label="Notifications"><div className="admin-notification-heading"><strong>Notifications</strong><small>{notificationCount ? `${notificationCount} need attention` : "All clear"}</small></div>{paidOrderAlerts.length > 0 && <div className="admin-notification-group"><p>Orders</p>{paidOrderAlerts.map((order) => <button type="button" className="admin-notification-item" key={order.id} onClick={() => { setOrderFilter("to_pack"); if (changeTab("orders")) setNotificationsOpen(false); }}><span className="admin-notification-icon payment">✓</span><span><strong>{order.orderNumber}</strong><small>Payment received from {order.customerName} · {rupees(order.totalPaise / 100)}</small></span></button>)}</div>}{lowStockProducts.length > 0 && <div className="admin-notification-group"><p>Inventory</p>{lowStockProducts.map(({ product, stock }) => <button type="button" className="admin-notification-item" key={product.id} onClick={() => openProduct(product.id)}><span className="admin-notification-icon stock">!</span><span><strong>{product.name}</strong><small>{stock === 0 ? "Out of stock" : `${stock} left`} · Restock needed</small></span></button>)}</div>}{notificationCount === 0 && <p className="admin-notification-empty">No new notifications.</p>}</div>}</div><button type="button" className="admin-mobile-menu" aria-expanded={adminMenuOpen} aria-controls="admin-mobile-menu" onClick={() => setAdminMenuOpen(true)}><span aria-hidden="true">☰</span> Menu</button><Link className="admin-view-store" href="/" target="_blank">View store ↗</Link>{tab === "products" && <button className="button button-dark" onClick={addProduct} disabled={busy}>+ New product</button>}{tab === "coupons" && <button className="button button-dark" onClick={addCoupon} disabled={busy}>+ New coupon</button>}</div></header>
         {notice && <div className={`admin-notice${Object.keys(productErrors).length ? " error" : ""}`} role={Object.keys(productErrors).length ? "alert" : "status"}>{notice}<button onClick={() => setNotice("")}>×</button></div>}
 
         {tab === "overview" && <div className="admin-overview">
           <div className="metric-grid"><article><span>Products</span><strong>{products.length}</strong><small>{products.filter((item) => item.status === "active").length} live</small></article><article><span>Units in stock</span><strong>{totalStock}</strong><small>Across every size</small></article><article><span>Shipping setup</span><strong>{productsMissingShippingWeight}</strong><small>{productsMissingShippingWeight ? "live product(s) need packed weight" : "Every live product is weighted"}</small></article><article><span>Captured revenue</span><strong>{rupees(revenue)}</strong><small>{paidOrders.length} paid orders</small></article></div>
-          {lowStockProducts.length > 0 && <section className="low-stock-alert" role="alert" aria-labelledby="low-stock-alert-title"><div><p className="kicker">Inventory alert</p><h2 id="low-stock-alert-title">Restock needed soon.</h2><p>{lowStockProducts.length} active product{lowStockProducts.length === 1 ? "" : "s"} {lowStockProducts.length === 1 ? "has" : "have"} fewer than {LOW_STOCK_THRESHOLD} sellable units.</p></div><div className="low-stock-alert-list">{lowStockProducts.map(({ product, stock }) => <div key={product.id}><strong>{product.name}</strong><span className={stock === 0 ? "out" : "low"}>{stock === 0 ? "Out of stock" : `${stock} left`}</span></div>)}<button type="button" className="button button-outline" onClick={() => changeTab("products")}>Manage inventory →</button></div></section>}
-          {paidOrderAlerts.length > 0 && <section className="payment-alert" role="alert" aria-labelledby="payment-alert-title"><div><p className="kicker">Payment received</p><h2 id="payment-alert-title">New order ready to pack.</h2><p>{paidOrderAlerts.length} paid order{paidOrderAlerts.length === 1 ? "" : "s"} {paidOrderAlerts.length === 1 ? "is" : "are"} waiting for fulfilment.</p></div><div className="payment-alert-list">{paidOrderAlerts.map((order) => <div key={order.id}><strong>{order.orderNumber} · {order.customerName}</strong><span>{rupees(order.totalPaise / 100)}</span></div>)}<button type="button" className="button button-outline" onClick={() => { setOrderFilter("to_pack"); changeTab("orders"); }}>Open paid orders →</button></div></section>}
-          <div className="admin-two-col"><article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Inventory</p><h2>What needs attention</h2></div><button onClick={() => changeTab("products")}>Manage →</button></div>{products.map((product) => { const stock = product.variants.filter((variant) => variant.active).reduce((sum, variant) => sum + variant.stock, 0); return <div className="attention-row" key={product.id}><img src={product.images[0]} alt="" loading="lazy" decoding="async" /><div><strong>{product.name}</strong><span>{product.status} · {stock} units</span></div><span className={stock < LOW_STOCK_THRESHOLD ? "low" : "good"}>{stock < LOW_STOCK_THRESHOLD ? "Low stock" : "Healthy"}</span></div>; })}</article>
+          <div className="admin-two-col"><article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Inventory</p><h2>What needs attention</h2></div><button onClick={() => changeTab("products")}>Manage →</button></div>{products.map((product) => { const stock = product.variants.filter((variant) => variant.active).reduce((sum, variant) => sum + variant.stock, 0); return <button type="button" className="attention-row" key={product.id} onClick={() => openProduct(product.id)}><img src={product.images[0]} alt="" loading="lazy" decoding="async" /><div><strong>{product.name}</strong><span>{product.status} · {stock} units</span></div><span className={stock < LOW_STOCK_THRESHOLD ? "low" : "good"}>{stock < LOW_STOCK_THRESHOLD ? "Low stock" : "Healthy"}</span></button>; })}</article>
           <article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Workflow</p><h2>Instagram → Store</h2></div></div><div className="workflow-steps"><div className="done"><span>1</span><div><strong>Post on Instagram</strong><small>Keep creating as usual</small></div></div><div><span>2</span><div><strong>Sync to review queue</strong><small>Photos and captions arrive as pending</small></div></div><div><span>3</span><div><strong>Add selling details</strong><small>Set price, sizes and stock, then publish</small></div></div></div><button className="button button-outline" onClick={() => changeTab("instagram")}>Open Instagram queue</button></article></div>
         </div>}
 
@@ -1014,7 +1035,7 @@ export default function AdminDashboard({
         </div>}
 
         {tab === "products" && <div className="product-admin-layout">
-          <div className="product-list"><div className="product-list-search">Products · {products.length}</div>{products.map((product) => <button key={product.id} className={selectedId === product.id ? "active" : ""} onClick={() => selectProduct(product.id)}><img src={product.images[0] || "/products/sea-mist-01.webp"} alt="" /><div><strong>{product.name}</strong><span>{rupees(product.price)} · {product.status}</span></div><small>{product.variants.reduce((sum, variant) => sum + variant.stock, 0)}</small></button>)}</div>
+          <div className="product-list"><div className="product-list-search">Products · {products.length}</div>{products.map((product) => <button key={product.id} type="button" className={selectedId === product.id ? "active" : ""} onClick={() => selectProduct(product.id)}><img src={product.images[0] || "/products/sea-mist-01.webp"} alt="" /><div><strong>{product.name}</strong><span>{rupees(product.price)} · {product.status}</span></div><small>{product.variants.reduce((sum, variant) => sum + variant.stock, 0)}</small></button>)}</div>
           {draft && selected && <div className="product-editor">
             <div className="editor-heading"><div><p className="kicker">{draft.source === "instagram" ? "Instagram draft" : "Product details"}</p><h2>{draft.name}</h2></div><span className={`status-pill ${draft.status}`}>{draft.status}</span></div>
             <div className={`editor-photo-manager${productErrors.images ? " field-invalid" : ""}`}>
