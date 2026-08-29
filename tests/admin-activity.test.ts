@@ -18,3 +18,29 @@ test("admin activity is a dedicated, searchable and filterable workspace", async
   assert.match(dashboard, /activityLabel/);
   assert.doesNotMatch(dashboard, /<article className="admin-card admin-activity"/);
 });
+
+test("admin overview surfaces active products that need restocking", async () => {
+  const dashboard = await readFile(new URL("../app/admin/admin-dashboard.tsx", import.meta.url), "utf8");
+  assert.match(dashboard, /LOW_STOCK_THRESHOLD = 5/);
+  assert.match(dashboard, /lowStockProducts/);
+  assert.match(dashboard, /className="low-stock-alert"/);
+  assert.match(dashboard, /Out of stock/);
+});
+
+test("admin overview alerts on captured paid orders waiting for fulfilment", async () => {
+  const dashboard = await readFile(new URL("../app/admin/admin-dashboard.tsx", import.meta.url), "utf8");
+  assert.match(dashboard, /paidOrderAlerts = orders\.filter/);
+  assert.match(dashboard, /Payment received/);
+  assert.match(dashboard, /className="payment-alert"/);
+  assert.match(dashboard, /Open paid orders/);
+});
+
+test("admin refreshes orders while the overview is open", async () => {
+  const [dashboard, ordersRoute] = await Promise.all([
+    readFile(new URL("../app/admin/admin-dashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/admin/orders/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(dashboard, /setInterval\(refreshOrders, 30_000\)/);
+  assert.match(ordersRoute, /orderItems/);
+  assert.match(ordersRoute, /itemsByOrder/);
+});

@@ -8,6 +8,7 @@ export type ManagedCategory = {
   slug: string;
   sortOrder: number;
   active: boolean;
+  showOnHomepage: boolean;
 };
 
 export const FALLBACK_CATEGORY: ManagedCategory = {
@@ -16,6 +17,7 @@ export const FALLBACK_CATEGORY: ManagedCategory = {
   slug: "3-piece-sets",
   sortOrder: 0,
   active: true,
+  showOnHomepage: true,
 };
 
 export function categorySlug(value: string) {

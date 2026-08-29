@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   const rejected = await rejectUnlessAdmin(request);
   if (rejected) return rejected;
 
-  const payload = (await request.json()) as { name?: string; imageUrl?: string };
+  const payload = (await request.json()) as { name?: string; imageUrl?: string; hasSizes?: boolean };
   const name = payload.name?.trim().slice(0, 120) || "Untitled product";
   const id = crypto.randomUUID();
   const imageUrl = payload.imageUrl?.startsWith("/") ? payload.imageUrl : "";
@@ -40,12 +40,14 @@ export async function POST(request: Request) {
       subtitle: "New draft",
       status: "draft",
       primaryImage: imageUrl,
+      hasSizes: payload.hasSizes !== false,
     });
     if (imageUrl) {
       await tx.insert(productImages).values({ productId: id, url: imageUrl, alt: name, position: 0 });
     }
+    const sizes = payload.hasSizes === false ? ["One size"] : ["S", "M", "L", "XL", "XXL", "XXXL", "4XL"];
     await tx.insert(productVariants).values(
-      ["S", "M", "L", "XL", "XXL", "XXXL", "4XL"].map((size) => ({
+      sizes.map((size) => ({
         productId: id,
         size,
         sku: `CAS-${id.slice(0, 6).toUpperCase()}-${size}`,
@@ -69,6 +71,7 @@ export async function PATCH(request: Request) {
     compareAt?: number;
     status?: "draft" | "active" | "archived";
     featured?: boolean;
+    hasSizes?: boolean;
     color?: string;
     fabric?: string;
     includes?: string;
@@ -90,7 +93,7 @@ export async function PATCH(request: Request) {
   if (!Number.isFinite(packedWeightGrams) || packedWeightGrams < 0 || packedWeightGrams > 50_000) return Response.json({ error: "Enter a valid packed shipping weight in grams." }, { status: 400 });
 
   const db = getDb();
-  const [existing] = await db.select({ id: products.id, primaryImage: products.primaryImage, categoryId: products.categoryId, category: products.category }).from(products).where(eq(products.id, payload.id)).limit(1);
+  const [existing] = await db.select({ id: products.id, primaryImage: products.primaryImage, categoryId: products.categoryId, category: products.category, hasSizes: products.hasSizes }).from(products).where(eq(products.id, payload.id)).limit(1);
   if (!existing) return Response.json({ error: "Product not found" }, { status: 404 });
 
   const name = payload.name?.trim().slice(0, 120) || "Untitled product";
@@ -100,6 +103,7 @@ export async function PATCH(request: Request) {
   const images = payload.images ? safeImages(payload.images) : safeImages([payload.primaryImage ?? existing.primaryImage]);
   const primaryImage = images[0] ?? "";
   const categoryId = payload.categoryId === undefined ? existing.categoryId : typeof payload.categoryId === "string" && payload.categoryId.trim() ? payload.categoryId.trim() : null;
+  const hasSizes = payload.hasSizes === undefined ? existing.hasSizes : payload.hasSizes;
   const [category] = categoryId ? await db.select().from(categories).where(eq(categories.id, categoryId)).limit(1) : [];
   if (categoryId && !category) return Response.json({ error: "Choose a valid product category." }, { status: 400 });
   if (payload.status === "active" && pricePaise <= 0) return Response.json({ error: "An active product needs a price greater than zero." }, { status: 400 });
@@ -108,7 +112,7 @@ export async function PATCH(request: Request) {
   if (payload.status === "active" && (!categoryId || !category?.active)) return Response.json({ error: "Choose an active category before publishing this product." }, { status: 400 });
 
   const existingVariants = await db
-    .select({ id: productVariants.id, stock: productVariants.stock, active: productVariants.active })
+    .select({ id: productVariants.id, size: productVariants.size, stock: productVariants.stock, active: productVariants.active })
     .from(productVariants)
     .where(eq(productVariants.productId, payload.id));
   const existingVariantMap = new Map(existingVariants.map((variant) => [variant.id, variant]));
@@ -120,6 +124,7 @@ export async function PATCH(request: Request) {
   if (variantUpdates.some((variant) => !Number.isInteger(variant.id) || !existingVariantMap.has(variant.id))) {
     return Response.json({ error: "One of the product variants is invalid." }, { status: 400 });
   }
+  const oneSizeStock = Math.max(0, Math.min(9999, Math.floor(Number(variantUpdates[0]?.stock) || 0)));
 
   const restockedVariantIds = variantUpdates
     .filter((variant) => {
@@ -140,6 +145,7 @@ export async function PATCH(request: Request) {
       category: category?.name ?? existing.category,
       status: payload.status ?? "draft",
       featured: Boolean(payload.featured),
+      hasSizes,
       color: payload.color?.trim().slice(0, 80) || "",
       fabric: payload.fabric?.trim().slice(0, 160) || "",
       includes: payload.includes?.trim().slice(0, 300) || "",
@@ -149,11 +155,26 @@ export async function PATCH(request: Request) {
       updatedAt: sql`CURRENT_TIMESTAMP`,
     }).where(eq(products.id, existing.id));
 
-    for (const variant of variantUpdates) {
-      await tx
-        .update(productVariants)
-        .set({ stock: variant.stock, active: variant.active })
-        .where(and(eq(productVariants.id, variant.id), eq(productVariants.productId, existing.id)));
+    if (!hasSizes) {
+      const oneSizeVariant = existingVariants.find((variant) => variant.size === "One size");
+      if (oneSizeVariant) {
+        await tx.update(productVariants).set({ stock: oneSizeStock, active: true }).where(and(eq(productVariants.id, oneSizeVariant.id), eq(productVariants.productId, existing.id)));
+      } else {
+        await tx.insert(productVariants).values({ productId: existing.id, size: "One size", sku: `CAS-${existing.id.slice(0, 6).toUpperCase()}-ONE-SIZE`, stock: oneSizeStock, active: true });
+      }
+      await tx.update(productVariants).set({ active: false }).where(and(eq(productVariants.productId, existing.id), ne(productVariants.size, "One size")));
+    } else {
+      if (!existing.hasSizes) {
+        await tx.update(productVariants).set({ active: true }).where(and(eq(productVariants.productId, existing.id), ne(productVariants.size, "One size")));
+        await tx.update(productVariants).set({ active: false }).where(and(eq(productVariants.productId, existing.id), eq(productVariants.size, "One size")));
+      }
+      for (const variant of variantUpdates) {
+        if (existingVariantMap.get(variant.id)?.size === "One size") continue;
+        await tx
+          .update(productVariants)
+          .set({ stock: variant.stock, active: variant.active })
+          .where(and(eq(productVariants.id, variant.id), eq(productVariants.productId, existing.id)));
+      }
     }
 
     await tx.delete(productImages).where(eq(productImages.productId, existing.id));
@@ -163,5 +184,7 @@ export async function PATCH(request: Request) {
     }
   });
   await notifyRestock(restockedVariantIds);
-  return Response.json({ ok: true, slug });
+  const savedVariants = await db.select({ id: productVariants.id, size: productVariants.size, sku: productVariants.sku, stock: productVariants.stock, active: productVariants.active }).from(productVariants).where(eq(productVariants.productId, existing.id)).orderBy(productVariants.id);
+  const visibleVariants = hasSizes ? savedVariants.filter((variant) => variant.size !== "One size" || variant.active) : savedVariants.filter((variant) => variant.size === "One size");
+  return Response.json({ ok: true, slug, variants: visibleVariants });
 }

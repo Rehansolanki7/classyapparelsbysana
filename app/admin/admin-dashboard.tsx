@@ -93,13 +93,17 @@ type SimpleShippingRate = { customerPrice: number; deliveryDaysMin: number; deli
 type SimpleShippingRates = Record<ShippingZone, SimpleShippingRate>;
 
 type Tab = "overview" | "products" | "categories" | "instagram" | "orders" | "activity" | "coupons" | "shipping" | "settings";
-type ProductField = "name" | "price" | "compareAt" | "categoryId" | "packedWeightGrams" | "images";
+type ProductField = "name" | "price" | "compareAt" | "categoryId" | "packedWeightGrams" | "images" | "hasSizes";
 type ProductFieldErrors = Partial<Record<ProductField, string>>;
 
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
-const MAX_IMAGE_EDGE = 2400;
+// Keep a buffer below the route/hosting limit because multipart form data adds
+// a small amount of overhead around the image bytes.
+const TARGET_UPLOAD_BYTES = 3.5 * 1024 * 1024;
+const MAX_IMAGE_EDGE = 2000;
+const MIN_IMAGE_EDGE = 1200;
 const HANDLING_FEE_RUPEES = 50;
 const SIMPLE_SHIPPING_WEIGHT_LIMIT_GRAMS = 5_000;
+const LOW_STOCK_THRESHOLD = 5;
 
 function zoneLabel(zone: ShippingZone) {
   return zone === "mumbai_local" ? "Mumbai" : zone === "maharashtra" ? "Maharashtra" : "Rest of India";
@@ -119,7 +123,7 @@ function simpleShippingRatesFromCards(cards: ShippingRateCard[]): SimpleShipping
 
 async function prepareProductImage(file: File) {
   if (!file.type.startsWith("image/")) throw new Error(`${file.name} is not an image.`);
-  if (file.size <= MAX_UPLOAD_BYTES) return file;
+  if (file.type === "image/webp" && file.size <= TARGET_UPLOAD_BYTES) return file;
 
   const objectUrl = URL.createObjectURL(file);
   try {
@@ -130,23 +134,32 @@ async function prepareProductImage(file: File) {
       element.src = objectUrl;
     });
 
-    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
     const context = canvas.getContext("2d");
     if (!context) throw new Error(`Could not prepare ${file.name}.`);
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
     const encode = (quality: number) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", quality));
-    let blob = await encode(0.82);
-    if (blob && blob.size > MAX_UPLOAD_BYTES) blob = await encode(0.68);
-    if (!blob || blob.size > MAX_UPLOAD_BYTES) {
-      throw new Error(`${file.name} is still too large after optimisation. Please choose a smaller photo.`);
+    const qualities = [0.82, 0.72, 0.62, 0.52, 0.42, 0.34, 0.28, 0.22];
+    let edge = MAX_IMAGE_EDGE;
+    let lastSize = file.size;
+    for (const quality of qualities) {
+      const scale = Math.min(1, edge / Math.max(image.naturalWidth, image.naturalHeight));
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const blob = await encode(quality);
+      if (blob) {
+        lastSize = blob.size;
+        if (blob.size <= TARGET_UPLOAD_BYTES) {
+          const baseName = file.name.replace(/\.[^.]+$/, "") || "product-photo";
+          return new File([blob], `${baseName}.webp`, { type: "image/webp", lastModified: file.lastModified });
+        }
+      }
+      edge = Math.max(MIN_IMAGE_EDGE, Math.round(edge * 0.8));
     }
-
-    const baseName = file.name.replace(/\.[^.]+$/, "") || "product-photo";
-    return new File([blob], `${baseName}.webp`, { type: "image/webp", lastModified: file.lastModified });
+    const sizeMb = (lastSize / (1024 * 1024)).toFixed(1);
+    throw new Error(`${file.name} could not be compressed below 3.5 MB (last attempt: ${sizeMb} MB). Try a smaller photo.`);
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
@@ -310,6 +323,7 @@ export default function AdminDashboard({
   const [categories, setCategories] = useState(initialCategories);
   const [categoryEdits, setCategoryEdits] = useState<Record<string, string>>({});
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryShowOnHomepage, setNewCategoryShowOnHomepage] = useState(true);
   const [imports, setImports] = useState(initialImports);
   const [orders, setOrders] = useState(initialOrders);
   const [coupons, setCoupons] = useState(initialCoupons);
@@ -333,7 +347,9 @@ export default function AdminDashboard({
   const closeAdminMenu = useCallback(() => setAdminMenuOpen(false), []);
   const adminMenuDialogRef = useOverlayDialog<HTMLElement>(adminMenuOpen, closeAdminMenu, "[data-admin-menu-close]");
   const pendingImports = imports.filter((item) => item.status === "pending");
-  const totalStock = products.reduce((sum, product) => sum + product.variants.reduce((variantSum, variant) => variantSum + variant.stock, 0), 0);
+  const totalStock = products.reduce((sum, product) => sum + product.variants.filter((variant) => variant.active).reduce((variantSum, variant) => variantSum + variant.stock, 0), 0);
+  const lowStockProducts = products.filter((product) => product.status === "active").map((product) => ({ product, stock: product.variants.filter((variant) => variant.active).reduce((sum, variant) => sum + variant.stock, 0) })).filter(({ stock }) => stock < LOW_STOCK_THRESHOLD);
+  const paidOrderAlerts = orders.filter((order) => isFulfillableOrder(order) && order.status === "paid");
   const productsMissingShippingWeight = products.filter((product) => product.status === "active" && product.packedWeightGrams <= 0).length;
   const paidOrders = orders.filter(isFulfillableOrder);
   const revenue = paidOrders.reduce((sum, order) => sum + order.totalPaise / 100, 0);
@@ -387,6 +403,29 @@ export default function AdminDashboard({
     return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
   }, [hasUnsavedChanges]);
 
+  useEffect(() => {
+    if (tab !== "overview") return;
+    let active = true;
+    async function refreshOrders() {
+      try {
+        const response = await fetch("/api/admin/orders", { cache: "no-store" });
+        if (!response.ok) return;
+        const result = await response.json().catch(() => ({})) as { orders?: OrderItem[] };
+        if (!active || !result.orders) return;
+        setOrders((current) => {
+          const incoming = new Map(result.orders!.map((order) => [order.id, order]));
+          const merged = current.map((order) => incoming.has(order.id) ? incoming.get(order.id)! : order);
+          const known = new Set(current.map((order) => order.id));
+          return [...result.orders!.filter((order) => !known.has(order.id)), ...merged];
+        });
+      } catch {
+        // The initial server-rendered order state remains usable if polling is unavailable.
+      }
+    }
+    const interval = window.setInterval(refreshOrders, 30_000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [tab]);
+
   function confirmDiscardChanges() {
     return !hasUnsavedChanges || window.confirm("You have unsaved changes. Discard them?");
   }
@@ -434,13 +473,13 @@ export default function AdminDashboard({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(draft),
       });
-      const result = (await response.json().catch(() => ({}))) as { error?: string; slug?: string };
+      const result = (await response.json().catch(() => ({}))) as { error?: string; slug?: string; variants?: CatalogProduct["variants"] };
       if (!response.ok) {
         const message = result.error || "Could not save this product";
         setProductErrors(productErrorsFromServer(message));
         setNotice(message);
       } else {
-        const saved = { ...structuredClone(draft), slug: result.slug ?? draft.slug };
+        const saved = { ...structuredClone(draft), slug: result.slug ?? draft.slug, variants: result.variants ?? draft.variants };
         setDraft(saved);
         setProducts((current) => current.map((item) => item.id === draft.id ? saved : item));
         setProductErrors({});
@@ -554,12 +593,13 @@ export default function AdminDashboard({
     setBusy(true);
     setNotice("");
     try {
-      const response = await fetch("/api/admin/categories", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
+      const response = await fetch("/api/admin/categories", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, showOnHomepage: newCategoryShowOnHomepage }) });
       const result = await response.json().catch(() => ({})) as { category?: ManagedCategory; error?: string };
       if (!response.ok || !result.category) setNotice(result.error || "Could not create that category.");
       else {
         setCategories((current) => [...current, result.category!]);
         setNewCategoryName("");
+        setNewCategoryShowOnHomepage(true);
         setNotice(`${result.category.name} is ready to use on products.`);
       }
     } catch {
@@ -606,6 +646,23 @@ export default function AdminDashboard({
       }
     } catch {
       setNotice("Could not update that category. Check your connection and try again.");
+    }
+    setBusy(false);
+  }
+
+  async function setCategoryHomepage(category: ManagedCategory, showOnHomepage: boolean) {
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/categories", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: category.id, showOnHomepage }) });
+      const result = await response.json().catch(() => ({})) as { category?: ManagedCategory; error?: string };
+      if (!response.ok || !result.category) setNotice(result.error || "Could not update the homepage setting.");
+      else {
+        setCategories((current) => current.map((item) => item.id === category.id ? result.category! : item));
+        setNotice(showOnHomepage ? "Category added to the homepage." : "Category hidden from the homepage.");
+      }
+    } catch {
+      setNotice("Could not update the homepage setting. Check your connection and try again.");
     }
     setBusy(false);
   }
@@ -728,24 +785,28 @@ export default function AdminDashboard({
   async function saveOrder(order: OrderItem, status = order.status, successMessage = "Order updated.") {
     setBusy(true);
     setNotice("");
-    const response = await fetch("/api/admin/orders", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...order, status }) });
-    const result = (await response.json()) as { error?: string };
-    if (response.ok) {
-      setOrders((current) => current.map((item) => item.id === order.id ? { ...item, ...order, status } : item));
-      setNotice(successMessage);
-    } else setNotice(result.error || "Could not update the order.");
-    setBusy(false);
+    try {
+      const response = await fetch("/api/admin/orders", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: order.id, status, courierName: order.courierName, trackingNumber: order.trackingNumber, trackingUrl: order.trackingUrl, legalHold: order.legalHold }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (response.ok) {
+        setOrders((current) => current.map((item) => item.id === order.id ? { ...item, courierName: order.courierName, trackingNumber: order.trackingNumber, trackingUrl: order.trackingUrl, status } : item));
+        setNotice(successMessage);
+      } else setNotice(result.error || "Could not update the order.");
+    } catch {
+      setNotice("Could not update the order. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function advanceOrder(order: OrderItem) {
-    const readyToShip = Boolean(order.courierName.trim() && order.trackingNumber.trim());
-    const nextStatus = order.status === "paid" ? readyToShip ? "shipped" : "processing" : order.status === "processing" ? "shipped" : order.status === "shipped" ? "delivered" : "";
+    const nextStatus = order.status === "paid" || order.status === "processing" ? "shipped" : order.status === "shipped" ? "delivered" : "";
     if (!nextStatus) return;
-    if (nextStatus === "shipped" && (!order.courierName.trim() || !order.trackingNumber.trim())) {
-      setNotice("Add the courier and AWB/tracking number before marking this order shipped.");
-      return;
-    }
-    const successMessage = nextStatus === "processing" ? "Order moved to packing." : nextStatus === "shipped" ? "Order marked shipped and ready for the customer to track." : "Order marked delivered.";
+    const successMessage = nextStatus === "shipped" ? "Order marked shipped and ready for the customer to track." : "Order marked delivered.";
     await saveOrder(order, nextStatus, successMessage);
   }
 
@@ -911,7 +972,9 @@ export default function AdminDashboard({
 
         {tab === "overview" && <div className="admin-overview">
           <div className="metric-grid"><article><span>Products</span><strong>{products.length}</strong><small>{products.filter((item) => item.status === "active").length} live</small></article><article><span>Units in stock</span><strong>{totalStock}</strong><small>Across every size</small></article><article><span>Shipping setup</span><strong>{productsMissingShippingWeight}</strong><small>{productsMissingShippingWeight ? "live product(s) need packed weight" : "Every live product is weighted"}</small></article><article><span>Captured revenue</span><strong>{rupees(revenue)}</strong><small>{paidOrders.length} paid orders</small></article></div>
-          <div className="admin-two-col"><article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Inventory</p><h2>What needs attention</h2></div><button onClick={() => changeTab("products")}>Manage →</button></div>{products.map((product) => { const stock = product.variants.reduce((sum, variant) => sum + variant.stock, 0); return <div className="attention-row" key={product.id}><img src={product.images[0]} alt="" loading="lazy" decoding="async" /><div><strong>{product.name}</strong><span>{product.status} · {stock} units</span></div><span className={stock < 5 ? "low" : "good"}>{stock < 5 ? "Low stock" : "Healthy"}</span></div>; })}</article>
+          {lowStockProducts.length > 0 && <section className="low-stock-alert" role="alert" aria-labelledby="low-stock-alert-title"><div><p className="kicker">Inventory alert</p><h2 id="low-stock-alert-title">Restock needed soon.</h2><p>{lowStockProducts.length} active product{lowStockProducts.length === 1 ? "" : "s"} {lowStockProducts.length === 1 ? "has" : "have"} fewer than {LOW_STOCK_THRESHOLD} sellable units.</p></div><div className="low-stock-alert-list">{lowStockProducts.map(({ product, stock }) => <div key={product.id}><strong>{product.name}</strong><span className={stock === 0 ? "out" : "low"}>{stock === 0 ? "Out of stock" : `${stock} left`}</span></div>)}<button type="button" className="button button-outline" onClick={() => changeTab("products")}>Manage inventory →</button></div></section>}
+          {paidOrderAlerts.length > 0 && <section className="payment-alert" role="alert" aria-labelledby="payment-alert-title"><div><p className="kicker">Payment received</p><h2 id="payment-alert-title">New order ready to pack.</h2><p>{paidOrderAlerts.length} paid order{paidOrderAlerts.length === 1 ? "" : "s"} {paidOrderAlerts.length === 1 ? "is" : "are"} waiting for fulfilment.</p></div><div className="payment-alert-list">{paidOrderAlerts.map((order) => <div key={order.id}><strong>{order.orderNumber} · {order.customerName}</strong><span>{rupees(order.totalPaise / 100)}</span></div>)}<button type="button" className="button button-outline" onClick={() => { setOrderFilter("to_pack"); changeTab("orders"); }}>Open paid orders →</button></div></section>}
+          <div className="admin-two-col"><article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Inventory</p><h2>What needs attention</h2></div><button onClick={() => changeTab("products")}>Manage →</button></div>{products.map((product) => { const stock = product.variants.filter((variant) => variant.active).reduce((sum, variant) => sum + variant.stock, 0); return <div className="attention-row" key={product.id}><img src={product.images[0]} alt="" loading="lazy" decoding="async" /><div><strong>{product.name}</strong><span>{product.status} · {stock} units</span></div><span className={stock < LOW_STOCK_THRESHOLD ? "low" : "good"}>{stock < LOW_STOCK_THRESHOLD ? "Low stock" : "Healthy"}</span></div>; })}</article>
           <article className="admin-card"><div className="admin-card-heading"><div><p className="kicker">Workflow</p><h2>Instagram → Store</h2></div></div><div className="workflow-steps"><div className="done"><span>1</span><div><strong>Post on Instagram</strong><small>Keep creating as usual</small></div></div><div><span>2</span><div><strong>Sync to review queue</strong><small>Photos and captions arrive as pending</small></div></div><div><span>3</span><div><strong>Add selling details</strong><small>Set price, sizes and stock, then publish</small></div></div></div><button className="button button-outline" onClick={() => changeTab("instagram")}>Open Instagram queue</button></article></div>
         </div>}
 
@@ -1008,7 +1071,8 @@ export default function AdminDashboard({
                 <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={5} />
               </label>
             </div>
-            <div className="inventory-editor"><div><h3>Size inventory</h3><p>Stock reaches the storefront immediately after saving.</p></div><div className="variant-grid">{draft.variants.map((variant, index) => <label key={variant.id}><span>{variant.size}</span><input type="number" min="0" max="9999" value={variant.stock} onChange={(event) => { const variants = [...draft.variants]; variants[index] = { ...variant, stock: Number(event.target.value) }; setDraft({ ...draft, variants }); }} /></label>)}</div></div>
+            <label className="feature-toggle product-size-toggle"><input type="checkbox" checked={draft.hasSizes} onChange={(event) => setDraft({ ...draft, hasSizes: event.target.checked })} /><span><strong>This product has sizes</strong><small>Turn off for unstitched or free-size pieces.</small></span></label>
+            <div className="inventory-editor"><div><h3>{draft.hasSizes ? "Size inventory" : "Product inventory"}</h3><p>{draft.hasSizes ? "Stock reaches the storefront immediately after saving." : "Enter the total number of pieces available. Customers will not choose a size."}</p></div><div className={draft.hasSizes ? "variant-grid" : "variant-grid single"}>{(draft.hasSizes ? draft.variants : draft.variants.slice(0, 1)).map((variant, index) => <label key={variant.id}><span>{draft.hasSizes ? variant.size : "Available pieces"}</span><input type="number" min="0" max="9999" value={variant.stock} onChange={(event) => { const variants = [...draft.variants]; const variantIndex = draft.hasSizes ? index : 0; variants[variantIndex] = { ...variants[variantIndex], stock: Number(event.target.value) }; setDraft({ ...draft, variants }); }} /></label>)}</div></div>
             <div className="editor-publish"><label><span>Visibility</span><select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value as CatalogProduct["status"] })}><option value="draft">Draft — hidden from customers</option><option value="active">Active — visible and purchasable</option><option value="archived">Archived</option></select></label><label className="feature-toggle"><input type="checkbox" checked={draft.featured} onChange={(event) => setDraft({ ...draft, featured: event.target.checked })} /><span>Feature on home page</span></label><button className="button button-dark" onClick={saveProduct} disabled={busy}>{busy ? "Saving…" : "Save product"}</button></div>
           </div>}
         </div>}
@@ -1016,7 +1080,7 @@ export default function AdminDashboard({
         {tab === "categories" && <div className="categories-admin">
           <section className="category-admin-intro">
             <div><p className="kicker">Shop discovery</p><h2>Arrange the shop your way.</h2><p>Create the few collections customers should see first. A live product needs one active category before it can be published.</p></div>
-            <form className="category-create-form" onSubmit={createCategory}><label><span>New category</span><input value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} maxLength={80} placeholder="e.g. Pakistani suits" /></label><button className="button button-dark" disabled={busy || !newCategoryName.trim()}>{busy ? "Saving…" : "Add category"}</button></form>
+            <form className="category-create-form" onSubmit={createCategory}><label><span>New category</span><input value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} maxLength={80} placeholder="e.g. Pakistani suits" /></label><label className="feature-toggle"><input type="checkbox" checked={newCategoryShowOnHomepage} onChange={(event) => setNewCategoryShowOnHomepage(event.target.checked)} /><span>Show on homepage</span></label><button className="button button-dark" disabled={busy || !newCategoryName.trim()}>{busy ? "Saving…" : "Add category"}</button></form>
           </section>
           <section className="category-admin-list" aria-label="Product categories">
             {!categories.length ? <div className="admin-empty"><span>◌</span><h2>Your first collection starts here.</h2><p>Add a category, then choose it while editing a product.</p></div> : categories.map((category, index) => {
@@ -1027,7 +1091,7 @@ export default function AdminDashboard({
                 <div className="category-order"><button type="button" onClick={() => moveCategory(index, -1)} disabled={busy || index === 0} aria-label={`Move ${category.name} earlier`}>↑</button><button type="button" onClick={() => moveCategory(index, 1)} disabled={busy || index === categories.length - 1} aria-label={`Move ${category.name} later`}>↓</button></div>
                 <label><span>Category name</span><input value={editedName} onChange={(event) => updateCategoryName(category.id, event.target.value)} maxLength={80} /></label>
                 <div className="category-meta"><strong>{productCount} product{productCount === 1 ? "" : "s"}</strong><small>{liveProductCount} live · /shop?category={category.slug}</small></div>
-                <div className="category-actions"><button type="button" className="button button-outline" onClick={() => saveCategory(category)} disabled={busy || editedName.trim() === category.name}>Save</button><button type="button" className="text-link" onClick={() => setCategoryActive(category, !category.active)} disabled={busy}>{category.active ? "Archive" : "Restore"}</button></div>
+                <div className="category-actions"><label className="feature-toggle"><input type="checkbox" checked={category.showOnHomepage} onChange={(event) => setCategoryHomepage(category, event.target.checked)} disabled={busy || !category.active} /><span>Show on homepage</span></label><button type="button" className="button button-outline" onClick={() => saveCategory(category)} disabled={busy || editedName.trim() === category.name}>Save</button><button type="button" className="text-link" onClick={() => setCategoryActive(category, !category.active)} disabled={busy}>{category.active ? "Archive" : "Restore"}</button></div>
               </article>;
             })}
           </section>
@@ -1054,15 +1118,14 @@ export default function AdminDashboard({
             {visibleOrders.map((order) => {
               const fulfilable = isFulfillableOrder(order);
               const whatsappUrl = customerWhatsappUrl(order.phone);
-              const readyToShip = Boolean(order.courierName.trim() && order.trackingNumber.trim());
-              const nextAction = order.status === "paid" ? readyToShip ? "Mark shipped" : "Start packing" : order.status === "processing" ? "Mark shipped" : order.status === "shipped" ? "Mark delivered" : "";
+                    const nextAction = order.status === "paid" || order.status === "processing" ? "Mark shipped" : order.status === "shipped" ? "Mark delivered" : "";
               return <article className={`fulfilment-order-card${fulfilable ? "" : " payment-review"}`} key={order.id}>
                 <header><div><p className="kicker">{shortDate(order.createdAt)}</p><h3>{order.orderNumber}</h3></div><strong>{rupees(order.totalPaise / 100)}</strong><span className={`status-pill ${order.status}`}>{order.status.replace("_", " ")}</span></header>
                 {fulfilable ? <>
                   <div className="fulfilment-order-grid">
                     <section className="order-customer-details"><p className="kicker">Delivery to</p><h4>{order.customerName}</h4><a href={`tel:${order.phone}`}>{order.phone}</a><a href={`mailto:${order.email}`}>{order.email}</a><p>{deliveryAddress(order)}</p><div><button type="button" className="button button-outline" onClick={() => copyDeliveryDetails(order)}>Copy delivery details</button>{whatsappUrl && <a className="text-link" href={whatsappUrl} target="_blank" rel="noreferrer">WhatsApp customer ↗</a>}</div></section>
                     <section className="order-items-summary"><p className="kicker">Pack these items</p>{order.items.length ? order.items.map((item, index) => <div key={`${item.productName}-${item.size}-${index}`}><strong>{item.quantity} × {item.productName}</strong><span>Size {item.size}</span></div>) : <p>Line items are unavailable. Do not dispatch before checking the customer order record.</p>}</section>
-                    <section className="order-fulfilment-actions"><p className="kicker">Fulfilment</p><h4>{order.status === "paid" ? "Ready to pack" : order.status === "processing" ? "Packing in progress" : order.status === "shipped" ? "On its way" : "Delivered"}</h4>{order.status !== "delivered" && <><label><span>Courier</span><input value={order.courierName} onChange={(event) => updateOrderDraft(order.id, { courierName: event.target.value })} placeholder="Delhivery, Blue Dart…" /></label><label><span>Tracking number / AWB</span><input value={order.trackingNumber} onChange={(event) => updateOrderDraft(order.id, { trackingNumber: event.target.value })} placeholder="Shipment reference" /></label><label><span>Tracking link</span><input type="url" value={order.trackingUrl} onChange={(event) => updateOrderDraft(order.id, { trackingUrl: event.target.value })} placeholder="https://…" /></label><div className="order-action-buttons"><button className="button button-outline" onClick={() => saveOrder(order, order.status, "Tracking details saved.")} disabled={busy}>Save tracking</button>{nextAction && <button className="button button-dark" onClick={() => advanceOrder(order)} disabled={busy}>{nextAction}</button>}</div></>}{order.status === "delivered" && <p className="order-complete-note">This order is complete. Tracking details remain in the customer view.</p>}</section>
+                    <section className="order-fulfilment-actions"><p className="kicker">Fulfilment</p><h4>{order.status === "paid" ? "Ready to pack" : order.status === "processing" ? "Packing in progress" : order.status === "shipped" ? "On its way" : "Delivered"}</h4>{order.status !== "delivered" && <><label><span>Courier <small>optional for now</small></span><input value={order.courierName} onChange={(event) => updateOrderDraft(order.id, { courierName: event.target.value })} placeholder="Delhivery, Blue Dart…" /></label><label><span>Tracking number / AWB <small>can be added later</small></span><input value={order.trackingNumber} onChange={(event) => updateOrderDraft(order.id, { trackingNumber: event.target.value })} placeholder="Shipment reference" /></label><label><span>Tracking link <small>optional</small></span><input type="url" value={order.trackingUrl} onChange={(event) => updateOrderDraft(order.id, { trackingUrl: event.target.value })} placeholder="https://…" /></label><p className="order-tracking-hint">You can mark the order shipped now and add tracking details when the courier confirms the shipment.</p><div className="order-action-buttons"><button className="button button-outline" onClick={() => saveOrder(order, order.status, "Tracking details saved.")} disabled={busy}>Save tracking</button>{order.status === "paid" && <button className="button button-outline" onClick={() => saveOrder(order, "processing", "Order moved to packing.")} disabled={busy}>Start packing</button>}{nextAction && <button className="button button-dark" onClick={() => advanceOrder(order)} disabled={busy}>{nextAction}</button>}</div></>}{order.status === "delivered" && <p className="order-complete-note">This order is complete. Tracking details remain in the customer view.</p>}</section>
                   </div>
                   <footer className="fulfilment-order-footer"><span>Payment confirmed</span><span className={`status-pill ${order.adminNotificationStatus}`}>Email {order.adminNotificationStatus.replace("_", " ")}</span>{order.adminNotificationStatus !== "sent" && <button type="button" className="text-link" onClick={() => resendOrderAlert(order.id)} disabled={busy}>Retry order email</button>}<button type="button" className="text-link refund-action" onClick={() => refundOrder(order.id)} disabled={busy}>Cancel & refund order</button><a href={`/track-order?order=${encodeURIComponent(order.orderNumber)}`} target="_blank" rel="noreferrer">Customer view ↗</a><details><summary>More controls</summary><label className="feature-toggle"><input type="checkbox" checked={order.legalHold} onChange={(event) => changeLegalHold(order, event.target.checked)} disabled={busy} /><span>Legal hold</span></label></details></footer>
                 </> : <section className="order-payment-review"><p className="kicker">Not a shipping order</p><h4>{order.status === "refund_pending" ? "Refund in progress" : order.paymentStatus === "refunded" ? "Refunded" : "Payment has not been captured"}</h4><p>{order.status === "refund_pending" ? "Do not pack or dispatch this order. It remains here only until Razorpay confirms the full refund." : order.paymentStatus === "refunded" ? "This payment was refunded and cannot enter fulfilment." : "This payment attempt cannot enter packing or shipping. Canceled attempts have their delivery data cleared automatically."}</p><div>{order.razorpayOrderId && !["captured", "refunded"].includes(order.paymentStatus) && <button type="button" className="button button-outline" onClick={() => reconcileOrder(order.id)} disabled={busy}>Check Razorpay again</button>}{order.paymentStatus === "captured" && <button type="button" className="button button-outline" onClick={() => refundOrder(order.id)} disabled={busy}>Retry full refund</button>}<details><summary>Payment reference</summary><p>Payment: {order.paymentStatus.replace("_", " ")} · Fulfilment: {order.status.replace("_", " ")}</p></details></div></section>}

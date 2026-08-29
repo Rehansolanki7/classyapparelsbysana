@@ -106,6 +106,7 @@ export const categories = mysqlTable("categories", {
   slug: varchar("slug", { length: 100 }).notNull(),
   sortOrder: int("sort_order").notNull().default(0),
   active: boolean("active").notNull().default(true),
+  showOnHomepage: boolean("show_on_homepage").notNull().default(true),
   createdAt,
   updatedAt,
 }, (table) => [
@@ -136,6 +137,7 @@ export const products = mysqlTable("products", {
   instagramMediaId: varchar("instagram_media_id", { length: 80 }),
   instagramPermalink: varchar("instagram_permalink", { length: 500 }),
   featured: boolean("featured").notNull().default(false),
+  hasSizes: boolean("has_sizes").notNull().default(true),
   createdAt,
   updatedAt,
 }, (table) => [uniqueIndex("products_slug_unique").on(table.slug), uniqueIndex("products_instagram_media_unique").on(table.instagramMediaId), index("products_status_featured_idx").on(table.status, table.featured), index("products_category_status_idx").on(table.categoryId, table.status)]);

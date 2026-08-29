@@ -31,6 +31,7 @@ export type CatalogProduct = {
   packedWeightGrams: number;
   status: "draft" | "active" | "archived";
   featured: boolean;
+  hasSizes: boolean;
   source: "manual" | "instagram";
   images: string[];
   variants: CatalogVariant[];
@@ -58,6 +59,7 @@ export const FALLBACK_PRODUCT: CatalogProduct = {
   packedWeightGrams: 780,
   status: "active",
   featured: true,
+  hasSizes: true,
   source: "manual",
   images: [
     "/products/sea-mist-01.webp",
@@ -107,9 +109,10 @@ function mapProduct(
     packedWeightGrams: row.packedWeightGrams,
     status: row.status,
     featured: row.featured,
+    hasSizes: row.hasSizes,
     source: row.source,
     images: images.length ? images.map((image) => image.url) : [row.primaryImage].filter(Boolean),
-    variants: variants.map((variant) => ({
+    variants: (row.hasSizes ? variants.filter((variant) => variant.size !== "One size" || variant.active) : variants.filter((variant) => variant.size === "One size")).map((variant) => ({
       id: variant.id,
       size: variant.size,
       sku: variant.sku,

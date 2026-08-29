@@ -118,7 +118,7 @@ export default function CheckoutClient({
     "Hi Sana, I would like to complete this order.",
     "",
     "Order:",
-    ...lines.map((line) => `${line.item.quantity} × ${line.product.name} — size ${line.item.size}`),
+    ...lines.map((line) => `${line.item.quantity} × ${line.product.name}${line.product.hasSizes ? ` — size ${line.item.size}` : " — no size needed"}`),
     "",
     "Delivery details:",
     `Name: ${form.name.trim() || "—"}`,
@@ -363,7 +363,7 @@ export default function CheckoutClient({
       </header>
       <div className="checkout-grid">
         <form className="checkout-form" onSubmit={submit}>
-          <div className="checkout-title"><p className="kicker">Delivery details</p><h1>Where should we send it?</h1><p>Enter the complete delivery address exactly as it should appear on the parcel.</p></div>
+          <div className="checkout-title"><p className="kicker">Delivery details</p><h1>Where should we send it?</h1><p>Enter the complete delivery address exactly as it should appear on the parcel.</p><div className="checkout-shipping-callout"><strong>Shipping is added at this step</strong><span>We’ll calculate it from your destination and show the final amount before payment opens.</span></div></div>
           {savedAddresses.length > 0 && <div className="checkout-saved-address"><div><strong>Saved address</strong><small>Choose one to fill checkout instantly.</small></div><select value={selectedAddressId} onChange={(event) => chooseAddress(event.target.value)}><option value="">Enter a new address</option>{savedAddresses.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.city}{address.isDefault ? " (Default)" : ""}</option>)}</select><Link href="/account">Manage addresses</Link></div>}
           <div className="checkout-fields">
             <label className="full"><span>Full name</span><input value={form.name} onChange={(event) => update("name", event.target.value)} autoComplete="name" required /></label>
@@ -387,10 +387,10 @@ export default function CheckoutClient({
         <aside className="checkout-summary">
           <p className="kicker">Your order · {itemCount} item{itemCount === 1 ? "" : "s"}</p>
           <div className="checkout-products">
-            {lines.map(({ item, index, product, variant }) => <div className="checkout-product" key={`${item.productId}-${index}`}><img src={product.images[0]} alt="" loading="lazy" decoding="async" /><div><h2>{product.name}</h2><div className="checkout-selectors"><label>Size<SizeSelect value={item.size} options={product.variants.filter((candidate) => candidate.active && candidate.stock > 0)} onChange={(size) => updateItem(index, { size })} label={`Choose size for ${product.name}`} /></label><label>Qty<select value={item.quantity} onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}>{Array.from({ length: Math.max(1, Math.min(5, variant.stock)) }, (_, optionIndex) => optionIndex + 1).map((value) => <option key={value}>{value}</option>)}</select></label></div><strong>{money(product.price * item.quantity)}</strong>{lines.length > 1 && <button type="button" className="checkout-remove" onClick={() => removeItem(index)}>Remove</button>}</div></div>)}
+            {lines.map(({ item, index, product, variant }) => <div className="checkout-product" key={`${item.productId}-${index}`}><img src={product.images[0]} alt="" loading="lazy" decoding="async" /><div><h2>{product.name}</h2><div className="checkout-selectors">{product.hasSizes ? <label>Size<SizeSelect value={item.size} options={product.variants.filter((candidate) => candidate.active && candidate.stock > 0)} onChange={(size) => updateItem(index, { size })} label={`Choose size for ${product.name}`} /></label> : <span className="checkout-no-size">No size needed</span>}<label>Qty<select value={item.quantity} onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}>{Array.from({ length: Math.max(1, Math.min(5, variant.stock)) }, (_, optionIndex) => optionIndex + 1).map((value) => <option key={value}>{value}</option>)}</select></label></div><strong>{money(product.price * item.quantity)}</strong>{lines.length > 1 && <button type="button" className="checkout-remove" onClick={() => removeItem(index)}>Remove</button>}</div></div>)}
           </div>
           <div className="coupon-box"><label><span>Discount code</span><div><input value={couponCode} onChange={(event) => { setCouponCode(event.target.value.toUpperCase()); setDiscount(0); }} placeholder="Enter code" /><button type="button" onClick={applyCoupon}>Apply</button></div></label>{couponNotice && <small>{couponNotice}</small>}</div>
-          <div className="checkout-totals"><div><span>Subtotal</span><span>{money(subtotal)}</span></div><div><span>Shipping</span><span>{shippingNeedsQuote || manualShippingNeeded ? "Manual quote" : shippingPending ? "Calculated at payment" : money(shipping)}</span></div>{discount > 0 && <div><span>Discount</span><span>−{money(discount)}</span></div>}<div className="total"><strong>{shippingNeedsQuote || manualShippingNeeded || shippingPending ? "Product total" : "Total"}</strong><strong>{money(total)}</strong></div></div>
+          <div className="checkout-totals"><div><span>Subtotal</span><span>{money(subtotal)}</span></div><div><span>Shipping</span><span>{shippingNeedsQuote || manualShippingNeeded ? "Manual quote" : shippingPending ? "Added before payment" : money(shipping)}</span></div>{discount > 0 && <div><span>Discount</span><span>−{money(discount)}</span></div>}<div className="total"><strong>{shippingNeedsQuote || manualShippingNeeded || shippingPending ? "Product total" : "Total"}</strong><strong>{money(total)}</strong></div></div>
           <div className="checkout-promise"><strong>Shopping with Sana</strong><p>Honest product photos · size help on WhatsApp · secure server-verified payments</p></div>
         </aside>
       </div>

@@ -8,6 +8,7 @@ type CategoryPayload = {
   id?: string;
   name?: string;
   active?: boolean;
+  showOnHomepage?: boolean;
   action?: "reorder";
   orderedIds?: string[];
 };
@@ -67,7 +68,7 @@ export async function POST(request: Request) {
   }
   const id = crypto.randomUUID();
   try {
-    await db.insert(categories).values({ id, name, slug: await availableSlug(name), sortOrder: existing.length, active: true });
+    await db.insert(categories).values({ id, name, slug: await availableSlug(name), sortOrder: existing.length, active: true, showOnHomepage: payload.showOnHomepage !== false });
   } catch (error) {
     if (isDuplicate(error)) return Response.json({ error: "That category already exists." }, { status: 409 });
     throw error;
@@ -114,13 +115,14 @@ export async function PATCH(request: Request) {
   const nameConflict = (await orderedCategories()).some((category) => category.id !== existing.id && comparableName(category.name) === comparableName(name));
   if (nameConflict) return Response.json({ error: "That category already exists." }, { status: 409 });
   const active = payload.active === undefined ? existing.active : payload.active;
+  const showOnHomepage = payload.showOnHomepage === undefined ? existing.showOnHomepage : payload.showOnHomepage;
   if (!active) {
     const [liveProduct] = await db.select({ id: products.id }).from(products).where(and(eq(products.categoryId, existing.id), eq(products.status, "active"))).limit(1);
     if (liveProduct) return Response.json({ error: "Move products to another category before archiving this one." }, { status: 409 });
   }
 
   try {
-    await db.update(categories).set({ name, slug: await availableSlug(name, existing.id), active, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(categories.id, existing.id));
+    await db.update(categories).set({ name, slug: await availableSlug(name, existing.id), active, showOnHomepage, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(categories.id, existing.id));
   } catch (error) {
     if (isDuplicate(error)) return Response.json({ error: "That category already exists." }, { status: 409 });
     throw error;

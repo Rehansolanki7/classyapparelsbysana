@@ -1,6 +1,6 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { orders } from "../../../../db/schema";
+import { orderItems, orders } from "../../../../db/schema";
 import { rejectUnlessAdmin } from "../../../../lib/admin-auth";
 import { sendPaidOrderNotifications } from "../../../../lib/order-notifications";
 import { cancelPendingOrderAndRelease, finalizeCapturedOrder, restoreOrderStockOnce } from "../../../../lib/orders";
@@ -28,7 +28,13 @@ export async function GET(request: Request) {
   const rejected = await rejectUnlessAdmin(request);
   if (rejected) return rejected;
   const db = getDb();
-  return Response.json({ orders: await db.select().from(orders).orderBy(desc(orders.createdAt)).limit(100) });
+  const orderRows = await db.select().from(orders).orderBy(desc(orders.createdAt)).limit(100);
+  const itemRows = orderRows.length
+    ? await db.select({ orderId: orderItems.orderId, productName: orderItems.productName, size: orderItems.size, quantity: orderItems.quantity }).from(orderItems).where(inArray(orderItems.orderId, orderRows.map((order) => order.id)))
+    : [];
+  const itemsByOrder = new Map<string, Array<{ productName: string; size: string; quantity: number }>>();
+  for (const item of itemRows) itemsByOrder.set(item.orderId, [...(itemsByOrder.get(item.orderId) ?? []), { productName: item.productName, size: item.size, quantity: item.quantity }]);
+  return Response.json({ orders: orderRows.map((order) => ({ ...order, items: itemsByOrder.get(order.id) ?? [] })) });
 }
 
 export async function PATCH(request: Request) {
@@ -61,9 +67,9 @@ export async function PATCH(request: Request) {
   const trackingNumber = clean(payload.trackingNumber, 120);
   const trackingUrl = clean(payload.trackingUrl, 500);
   if (trackingUrl && !/^https:\/\//i.test(trackingUrl)) return Response.json({ error: "Tracking link must start with https://" }, { status: 400 });
-  if (payload.status === "shipped" && (!courierName || !trackingNumber)) {
-    return Response.json({ error: "Courier name and tracking number are required before marking an order shipped." }, { status: 400 });
-  }
+  // Shipment details may be added after dispatch. The fulfilment status is
+  // still protected by captured payment and the transition table below, while
+  // customers see "Updating shortly" until the courier/AWB is entered.
 
   if (!transitions[order.status]?.has(payload.status)) {
     return Response.json({ error: `An order cannot move from ${order.status} to ${payload.status}.` }, { status: 409 });
@@ -97,7 +103,7 @@ export async function PATCH(request: Request) {
     const user = await currentUser();
     await recordEvent({ severity: "security", eventType: payload.legalHold ? "admin.order_legal_hold_enabled" : "admin.order_legal_hold_removed", actorId: user?.id, entityType: "order", entityId: order.id });
   }
-  return Response.json({ ok: true });
+  return Response.json({ ok: true, status });
 }
 
 export async function POST(request: Request) {

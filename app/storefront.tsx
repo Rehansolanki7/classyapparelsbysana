@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { CatalogProduct } from "../lib/catalog";
+import type { ManagedCategory } from "../lib/categories";
 import type { StorefrontSettings } from "../lib/storefront-settings";
 import WhatsAppFloat from "./components/whatsapp-float";
 import BrandLogo from "./components/brand-logo";
@@ -65,7 +67,7 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
   return null;
 }
 
-export default function Storefront({ product, products, settings }: { product: CatalogProduct; products: CatalogProduct[]; settings: StorefrontSettings }) {
+export default function Storefront({ product, products, categories, settings }: { product: CatalogProduct; products: CatalogProduct[]; categories: ManagedCategory[]; settings: StorefrontSettings }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -87,7 +89,11 @@ export default function Storefront({ product, products, settings }: { product: C
   const sizeDialogRef = useOverlayDialog<HTMLElement>(sizeOpen, closeSizeGuide);
   const searchDialogRef = useOverlayDialog<HTMLDivElement>(searchOpen, closeSearch, "input");
 
-  const sizes = product.variants.filter((variant) => variant.active).map((variant) => variant.size);
+  const sizes = product.variants.filter((variant) => variant.active && variant.stock > 0).map((variant) => variant.size);
+  const defaultVariant = product.variants.find((variant) => variant.active) ?? product.variants[0];
+  const cartSize = product.hasSizes ? selectedSize : defaultVariant?.size ?? "";
+  const selectedVariant = product.variants.find((variant) => variant.size === cartSize && variant.active);
+  const selectedStock = selectedVariant?.stock ?? 0;
   const galleryImages = product.images.length ? product.images : ["/products/sea-mist-01.webp"];
   const coverImage = galleryImages[0];
   const styledImage = galleryImages[1] ?? coverImage;
@@ -95,6 +101,11 @@ export default function Storefront({ product, products, settings }: { product: C
   const heroImage = resolveHomepageImage(settings.featuredHeroImageUrl, styledImage);
   const detailPrimaryImage = resolveHomepageImage(settings.detailPrimaryImageUrl, galleryImages[2] ?? coverImage);
   const detailSecondaryImage = resolveHomepageImage(settings.detailSecondaryImageUrl, galleryImages[4] ?? styledImage);
+  const categoryCards = useMemo(() => categories.filter((category) => category.showOnHomepage).flatMap((category) => {
+    const categoryProducts = products.filter((candidate) => candidate.status === "active" && (candidate.categoryId === category.id || candidate.categorySlug === category.slug));
+    const image = categoryProducts[0]?.images[0];
+    return image ? [{ ...category, image, productCount: categoryProducts.length }] : [];
+  }), [categories, products]);
   const overlayOpen = menuOpen || cartOpen || sizeOpen || searchOpen;
 
   useEffect(() => {
@@ -147,14 +158,17 @@ export default function Storefront({ product, products, settings }: { product: C
   }
 
   function addToBag() {
-    if (!selectedSize) {
+    if (product.hasSizes && !selectedSize) {
       setNotice("Choose your size first");
       document.getElementById("size-picker")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
-    const variant = product.variants.find((item) => item.size === selectedSize);
-    const index = bag.findIndex((item) => item.productId === product.id && item.size === selectedSize);
-    const next = index < 0 ? [...bag, { productId: product.id, size: selectedSize, quantity: 1 }] : bag.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Math.min(item.quantity + 1, variant?.stock ?? 1, 5) } : item);
+    if (!cartSize || !selectedVariant || selectedStock <= 0) {
+      setNotice("This piece is currently sold out.");
+      return;
+    }
+    const index = bag.findIndex((item) => item.productId === product.id && item.size === cartSize);
+    const next = index < 0 ? [...bag, { productId: product.id, size: cartSize, quantity: 1 }] : bag.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Math.min(item.quantity + 1, selectedStock, 5) } : item);
     saveBag(next);
     setBag(next);
     setNotice("");
@@ -217,6 +231,16 @@ export default function Storefront({ product, products, settings }: { product: C
         <div><Icon name="shield" /><span><strong>Secure checkout</strong><small>UPI, cards and trusted payments</small></span></div>
       </section>
 
+      {categoryCards.length > 0 && <section className="category-showcase" aria-labelledby="category-showcase-title">
+        <div className="category-showcase-heading"><div><p className="kicker">Shop by category</p><h2 id="category-showcase-title">Find your<br /><em>kind of Style&apos;s.</em></h2></div><div className="category-carousel-controls"><button type="button" onClick={() => document.getElementById("home-category-track")?.scrollBy({ left: -300, behavior: "smooth" })} aria-label="See previous categories">←</button><button type="button" onClick={() => document.getElementById("home-category-track")?.scrollBy({ left: 300, behavior: "smooth" })} aria-label="See more categories">→</button></div></div>
+        <div className="category-track" id="home-category-track" tabIndex={0} aria-label="Product categories">
+          {categoryCards.map((category) => <Link className="category-card" href={`/shop?category=${encodeURIComponent(category.slug)}`} key={category.id}>
+            <div className="category-card-image"><img src={category.image} alt="" loading="lazy" decoding="async" /></div>
+            <div className="category-card-copy"><strong>{category.name}</strong><small>{category.productCount} piece{category.productCount === 1 ? "" : "s"}</small><span>Explore category <Icon name="arrow" size={15} /></span></div>
+          </Link>)}
+        </div>
+      </section>}
+
       <section className="editorial-intro" id="shop">
         <div><p className="kicker">{settings.collectionKicker}</p><h2>{settings.collectionHeading}</h2></div>
         <p>{settings.collectionBody}</p>
@@ -238,15 +262,16 @@ export default function Storefront({ product, products, settings }: { product: C
           <h2>{product.name}</h2>
           <div className="price-line"><strong>{money(product.price)}</strong>{product.compareAt > product.price && <><del>{money(product.compareAt)}</del><span>Save {money(product.compareAt - product.price)}</span></>}</div>
           <p className="tax-note">Inclusive of all taxes</p>
+          <p className="shipping-note">Shipping is calculated from your delivery address and added at checkout before payment.</p>
           <p className="product-description">{product.description}</p>
           {product.includes && <div className="includes"><span>Includes</span><strong>{product.includes}</strong></div>}
+          {product.hasSizes ? <>
           <div className="size-heading" id="size-picker"><span>Select size</span><button onClick={() => setSizeOpen(true)} aria-expanded={sizeOpen} aria-controls="size-guide">Find my size</button></div>
-          <div className="size-options">{sizes.map((size) => {
-            const soldOut = (product.variants.find((variant) => variant.size === size)?.stock ?? 0) <= 0;
-            return <button key={size} disabled={soldOut} className={selectedSize === size ? "selected" : ""} onClick={() => { setSelectedSize(size); setNotice(""); }} aria-pressed={selectedSize === size}>{size}</button>;
-          })}</div>
+          <div className="size-options">{sizes.map((size) => <button key={size} className={selectedSize === size ? "selected" : ""} onClick={() => { setSelectedSize(size); setNotice(""); }} aria-pressed={selectedSize === size}>{size}</button>)}</div>
+          {!sizes.length && <p className="stock-note">No sizes currently available.</p>}
+          </> : <div className="size-heading no-size-heading" id="size-picker"><span>No size needed</span><small>Free-size / unstitched piece</small></div>}
           {notice && <p className="field-notice" role="alert">{notice}</p>}
-          <button className="button button-dark add-button" onClick={addToBag} disabled={!hydrated}>Add to bag <span>{money(product.price)}</span></button>
+          <button className="button button-dark add-button" onClick={addToBag} disabled={!hydrated || !selectedVariant || selectedStock <= 0}>Add to bag <span>{money(product.price)}</span></button>
           <a className="button whatsapp-product-button" href={whatsappHref(productMessage)} target="_blank" rel="noreferrer">Ask Sana on WhatsApp</a>
           <details open><summary>Details &amp; care <Icon name="chevron" size={17} /></summary><p>{product.care || "Follow the care instructions on the garment label."} Product colours can vary slightly across phone and screen settings.</p></details>
           <details><summary>Delivery &amp; exchanges <Icon name="chevron" size={17} /></summary><p>Dispatch is typically planned within 2–4 working days. Unworn pieces with tags can be requested for a size exchange within 3 days of delivery.</p></details>
@@ -296,7 +321,7 @@ export default function Storefront({ product, products, settings }: { product: C
         ) : (
           <div className="cart-content">
             <div className="shop-bag-items">{bagLines.map(({ item, product: bagProduct, index }) => <div className="shop-bag-item" key={`${item.productId}-${item.size}`}><img src={bagProduct.images[0]} alt="" loading="lazy" decoding="async" /><div><strong>{bagProduct.name}</strong><span>Size {item.size}</span><small>{money(bagProduct.price * item.quantity)}</small><div className="quantity-control"><button onClick={() => changeQuantity(index, item.quantity - 1)} aria-label="Decrease quantity">−</button><span>{item.quantity}</span><button onClick={() => changeQuantity(index, item.quantity + 1)} aria-label="Increase quantity">+</button></div></div><button className="bag-remove" onClick={() => changeQuantity(index, 0)} aria-label={`Remove ${bagProduct.name}`}>×</button></div>)}</div>
-            <div className="cart-summary"><div><span>Subtotal</span><strong>{money(bagSubtotal)}</strong></div><small>Shipping is calculated from packed weight and destination at checkout.</small></div>
+            <div className="cart-summary"><div><span>Subtotal</span><strong>{money(bagSubtotal)}</strong></div><small>Shipping is calculated from your delivery address at checkout and added before payment.</small></div>
             <a href={checkoutHref} className="button button-dark checkout-button">Secure checkout <Icon name="arrow" size={18} /></a><p className="secure-line"><Icon name="shield" size={16} /> Protected checkout · UPI · Cards</p>
           </div>
         )}
