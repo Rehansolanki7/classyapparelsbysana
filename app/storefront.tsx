@@ -9,7 +9,7 @@ import type { StorefrontSettings } from "../lib/storefront-settings";
 import WhatsAppFloat from "./components/whatsapp-float";
 import BrandLogo from "./components/brand-logo";
 import { useOverlayDialog } from "./components/use-overlay-dialog";
-import { whatsappHref } from "../lib/whatsapp";
+import { WHATSAPP_COMMUNITY_URL, whatsappHref } from "../lib/whatsapp";
 
 type BagItem = { productId: string; size: string; quantity: number };
 const BAG_KEY = "classy-apparels-bag-v1";
@@ -292,7 +292,7 @@ export default function Storefront({ product, products, categories, settings }: 
 
       <section className="newsletter">
         <p className="kicker">The Sana circle</p><h2>{settings.newsletterHeading}</h2><p>{settings.newsletterBody}</p>
-        <a className="newsletter-join" href={whatsappHref(newsletterMessage)} target="_blank" rel="noreferrer">Join on WhatsApp <Icon name="arrow" /></a>
+        <a className="newsletter-join" href={WHATSAPP_COMMUNITY_URL} target="_blank" rel="noreferrer">Join on WhatsApp <Icon name="arrow" /></a>
       </section>
 
       <footer>

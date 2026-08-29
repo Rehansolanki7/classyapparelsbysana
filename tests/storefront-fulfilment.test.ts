@@ -41,6 +41,7 @@ test("home categories link to the existing category-filtered shop", async () => 
   assert.match(product, /Shipping is calculated from your delivery address/);
   assert.match(shop, /Shipping is calculated from your delivery address at checkout/);
   assert.match(css, /\.category-track/);
+  assert.match(storefront, /WHATSAPP_COMMUNITY_URL/);
 });
 
 test("admin can choose homepage categories and mark products as no-size", async () => {
