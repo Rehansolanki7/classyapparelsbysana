@@ -77,6 +77,7 @@ export default function CheckoutClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [setupNeeded, setSetupNeeded] = useState(false);
+  const [paymentOrderUnavailable, setPaymentOrderUnavailable] = useState(false);
   const [manualShippingNeeded, setManualShippingNeeded] = useState(false);
   const [packedWeightMissing, setPackedWeightMissing] = useState(false);
   const [deliveryNote, setDeliveryNote] = useState("");
@@ -249,6 +250,7 @@ export default function CheckoutClient({
     setBusy(true);
     setError("");
     setSetupNeeded(false);
+    setPaymentOrderUnavailable(false);
     setManualShippingNeeded(false);
     setPackedWeightMissing(false);
     let localOrderId = "";
@@ -275,6 +277,7 @@ export default function CheckoutClient({
       }>(orderResponse);
       if (!orderResponse.ok) {
         if (order.code === "PAYMENTS_NOT_CONFIGURED") setSetupNeeded(true);
+        if (order.code === "PAYMENT_ORDER_UNAVAILABLE" || order.code === "PAYMENT_ORDER_SAVE_FAILED") setPaymentOrderUnavailable(true);
         if (order.code === "PRODUCT_SHIPPING_WEIGHT_MISSING") setPackedWeightMissing(true);
         if (order.code === "MANUAL_SHIPPING_QUOTE_REQUIRED") setManualShippingNeeded(true);
         throw new Error(order.error || "Checkout is temporarily unavailable. Please try again; no payment was taken.");
@@ -377,7 +380,7 @@ export default function CheckoutClient({
             <label><span>{domestic ? "PIN code" : "Postal / ZIP code"}</span><input inputMode={domestic ? "numeric" : "text"} pattern={domestic ? "[1-9][0-9]{5}" : undefined} maxLength={domestic ? 6 : 16} value={form.postalCode} onChange={(event) => update("postalCode", domestic ? event.target.value.replace(/\D/g, "") : event.target.value.toUpperCase().replace(/[^A-Z0-9 /-]/g, ""))} onBlur={checkDestination} autoComplete="postal-code" placeholder={domestic ? "6-digit PIN" : "Use N/A if not applicable"} required />{deliveryNote && <small className="delivery-note">{deliveryNote}</small>}</label>
           </div>
           {initialCustomer && !selectedAddressId && <label className="checkout-save-address"><input type="checkbox" checked={saveAddress} onChange={(event) => setSaveAddress(event.target.checked)} /><span>Save this delivery address to my account for a faster next checkout.</span></label>}
-          {error && <div className={`checkout-error ${setupNeeded || manualShippingNeeded || packedWeightMissing ? "setup" : ""}`} role="alert"><strong>{setupNeeded ? "Online payment setup is pending" : packedWeightMissing ? "Product shipping setup is pending" : manualShippingNeeded ? (domestic ? "Delivery quote needed" : "International shipping quote needed") : "We couldn’t continue"}</strong><p>{error}</p>{(setupNeeded || manualShippingNeeded || packedWeightMissing) && <><a className="button whatsapp-checkout-button" href={whatsappHref(whatsappMessage)} target="_blank" rel="noreferrer">{manualShippingNeeded ? "Request shipping quote on WhatsApp" : packedWeightMissing ? "Message Sana about delivery" : "Complete this order on WhatsApp"} <span aria-hidden="true">→</span></a><small className="whatsapp-checkout-note">WhatsApp will open with your order and delivery details ready to send.</small></>}</div>}
+          {error && <div className={`checkout-error ${setupNeeded || manualShippingNeeded || packedWeightMissing ? "setup" : ""}`} role="alert"><strong>{setupNeeded ? "Online payment setup is pending" : paymentOrderUnavailable ? "Payment could not start" : packedWeightMissing ? "Product shipping setup is pending" : manualShippingNeeded ? (domestic ? "Delivery quote needed" : "International shipping quote needed") : "We couldn’t continue"}</strong><p>{error}</p>{(setupNeeded || manualShippingNeeded || packedWeightMissing) && <><a className="button whatsapp-checkout-button" href={whatsappHref(whatsappMessage)} target="_blank" rel="noreferrer">{manualShippingNeeded ? "Request shipping quote on WhatsApp" : packedWeightMissing ? "Message Sana about delivery" : "Complete this order on WhatsApp"} <span aria-hidden="true">→</span></a><small className="whatsapp-checkout-note">WhatsApp will open with your order and delivery details ready to send.</small></>}</div>}
           {packedWeightMissing && !error && <div className="checkout-error setup"><strong>Product shipping setup is pending</strong><p>This product needs a confirmed packed weight before payment. Please message Sana for a delivery quote.</p><a className="button whatsapp-checkout-button" href={whatsappHref(whatsappMessage)} target="_blank" rel="noreferrer">Message Sana about delivery <span aria-hidden="true">→</span></a></div>}
           {manualShippingNeeded && !error && <div className="checkout-error setup"><strong>{domestic ? "Delivery quote needed" : "International delivery is available"}</strong><p>Shipping is arranged manually. Request the final courier quote before payment.</p><a className="button whatsapp-checkout-button" href={whatsappHref(whatsappMessage)} target="_blank" rel="noreferrer">Request shipping quote on WhatsApp <span aria-hidden="true">→</span></a></div>}
           {!manualShippingNeeded && !packedWeightMissing && <button className="button button-dark pay-button" disabled={busy || !lines.length}>{busy ? "Checking delivery…" : shippingNeedsQuote ? "Check international delivery" : shippingPending ? "Continue to secure payment" : `Pay securely · ${money(total)}`}</button>}

@@ -51,6 +51,27 @@ function clean(value: string | undefined, max: number) {
   return (value ?? "").trim().replace(/[<>]/g, "").slice(0, max);
 }
 
+function gatewayDiagnostic(status: number, body: string) {
+  let code = "";
+  let description = "";
+  try {
+    const parsed = JSON.parse(body) as { error?: { code?: unknown; description?: unknown } };
+    code = typeof parsed.error?.code === "string" ? parsed.error.code : "";
+    description = typeof parsed.error?.description === "string" ? parsed.error.description : "";
+  } catch {
+    // A proxy or gateway can return HTML/plain text. Never retain that raw body.
+  }
+  const safeDescription = description
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[redacted email]")
+    .replace(/\d{10,}/g, "[redacted number]")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[<>]/g, "")
+    .trim()
+    .slice(0, 180);
+  return [`HTTP ${status}`, code && `code ${clean(code, 80)}`, safeDescription && `message ${safeDescription}`].filter(Boolean).join(" · ") || `HTTP ${status}`;
+}
+
 function validateCustomer(payload: CheckoutPayload) {
   const customer = payload.customer ?? {};
   const latitude = Number(customer.latitude);
@@ -178,7 +199,7 @@ async function createOrder(request: Request) {
   // Fourteen numeric digits remain easy to quote to customer support while
   // making a collision astronomically unlikely before the DB uniqueness check.
   const orderNumber = `CAS${Date.now().toString().slice(-8)}${crypto.getRandomValues(new Uint32Array(1))[0].toString().padStart(10, "0").slice(-6)}`;
-  const itemSummary = selected.map((item) => `${item.quantity} x ${item.productName}`).join(", ").slice(0, 240);
+  const itemSummary = selected.map((item) => `${item.quantity} x ${item.productName} · size ${item.size}`).join(", ").slice(0, 240);
   // `description` belongs to the Checkout options, while `receipt` and notes
   // are retained on the Razorpay Order visible in the Dashboard.
   const checkoutDescription = `Order ${orderNumber} — ${itemSummary}`.slice(0, 255);
@@ -237,6 +258,7 @@ async function createOrder(request: Request) {
   }
 
   let razorpayOrder: { id?: string; amount?: number; currency?: string } | null = null;
+  let gatewayFailure = "No response from Razorpay";
   try {
     const razorpayResponse = await fetch("https://api.razorpay.com/v1/orders", {
       method: "POST",
@@ -252,21 +274,55 @@ async function createOrder(request: Request) {
       }),
       signal: AbortSignal.timeout(10_000),
     });
-    if (razorpayResponse.ok) razorpayOrder = await razorpayResponse.json() as { id?: string; amount?: number; currency?: string };
-  } catch {
-    // The local reservation is released below.
+    const responseBody = await razorpayResponse.text();
+    if (razorpayResponse.ok) {
+      try {
+        razorpayOrder = JSON.parse(responseBody) as { id?: string; amount?: number; currency?: string };
+      } catch {
+        gatewayFailure = `HTTP ${razorpayResponse.status} · invalid JSON response`;
+      }
+    } else {
+      gatewayFailure = gatewayDiagnostic(razorpayResponse.status, responseBody);
+    }
+  } catch (error) {
+    // The local reservation is released below. Keep only a safe error class,
+    // never a gateway response or request payload.
+    gatewayFailure = `Network ${errorCode(error)}`;
+  }
+  if (razorpayOrder && (!razorpayOrder.id || razorpayOrder.amount !== totalPaise || razorpayOrder.currency !== "INR")) {
+    gatewayFailure = "Invalid order response from Razorpay (amount, currency or order ID did not match)";
   }
   if (!razorpayOrder?.id || razorpayOrder.amount !== totalPaise || razorpayOrder.currency !== "INR") {
     await cancelPendingOrderAndRelease(localOrderId, true, true);
-    await recordEvent({ severity: "error", eventType: "checkout.payment_order_unavailable", entityType: "order", entityId: localOrderId });
-    return Response.json({ error: "Payment service is temporarily unavailable. Please try again." }, { status: 502 });
+    await recordEvent({
+      severity: "error",
+      eventType: "checkout.payment_order_unavailable",
+      entityType: "order",
+      entityId: localOrderId,
+      detail: `Order ${orderNumber} · Products: ${itemSummary || "none recorded"} · Gateway: ${gatewayFailure}`,
+    });
+    return Response.json({
+      error: `Payment service did not return a valid payment order. No payment was taken. Please try again. Reference: ${orderNumber}`,
+      code: "PAYMENT_ORDER_UNAVAILABLE",
+      reference: orderNumber,
+    }, { status: 502 });
   }
   try {
     await db.update(orders).set({ razorpayOrderId: razorpayOrder.id, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(orders.id, localOrderId));
   } catch {
     await cancelPendingOrderAndRelease(localOrderId, true, true);
-    await recordEvent({ severity: "error", eventType: "checkout.payment_order_save_failed", entityType: "order", entityId: localOrderId });
-    return Response.json({ error: "We could not finish preparing the payment. Please try again." }, { status: 500 });
+    await recordEvent({
+      severity: "error",
+      eventType: "checkout.payment_order_save_failed",
+      entityType: "order",
+      entityId: localOrderId,
+      detail: `Order ${orderNumber} · Products: ${itemSummary || "none recorded"} · Gateway order was returned but could not be linked locally`,
+    });
+    return Response.json({
+      error: `We could not safely link the payment order. No payment was taken. Please try again. Reference: ${orderNumber}`,
+      code: "PAYMENT_ORDER_SAVE_FAILED",
+      reference: orderNumber,
+    }, { status: 500 });
   }
   return Response.json({
     keyId: keys.RAZORPAY_KEY_ID,

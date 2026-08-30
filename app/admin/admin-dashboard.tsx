@@ -204,6 +204,10 @@ function activityLabel(eventType: string) {
     "admin.shipping_rates_publish_failed": "Shipping price update failed",
     "admin.order_legal_hold_enabled": "Order legal hold enabled",
     "admin.order_legal_hold_removed": "Order legal hold removed",
+    "checkout.payment_order_unavailable": "Payment order could not be created",
+    "checkout.payment_order_save_failed": "Payment order could not be saved",
+    "checkout.reservation_failed": "Bag reservation failed",
+    "checkout.order_creation_failed": "Checkout order creation failed",
     "checkout.payment_captured": "Payment captured",
     "checkout.payment_signature_failed": "Payment signature rejected",
     "checkout.captured_payment_not_fulfillable": "Captured payment blocked from fulfilment",
@@ -211,6 +215,16 @@ function activityLabel(eventType: string) {
     "payment.refund_id_mismatch": "Refund reference did not match order",
   };
   return labels[eventType] ?? eventType.replace(/[._]/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function activityGuidance(eventType: string) {
+  const guidance: Record<string, string> = {
+    "checkout.payment_order_unavailable": "Meaning: the site prepared a temporary checkout, but Razorpay did not return a valid payment order. No payment was taken and the temporary stock reservation was released. Customer contact and address details are intentionally scrubbed from this unpaid attempt.",
+    "checkout.payment_order_save_failed": "Meaning: Razorpay returned a payment order, but the site could not save its reference locally. The temporary reservation was released; check the gateway dashboard before retrying.",
+    "checkout.reservation_failed": "Meaning: the site could not reserve the selected stock, so payment was not opened.",
+    "checkout.order_creation_failed": "Meaning: the site could not create the local checkout record. Payment should not have been opened.",
+  };
+  return guidance[eventType] ?? "";
 }
 
 function dateForInput(value: string | null) {
@@ -1030,7 +1044,7 @@ export default function AdminDashboard({
             : visibleActivities.length === 0 ? <div className="admin-empty"><span>⌕</span><h2>No matching activity</h2><p>Clear the search or choose a different filter.</p></div>
               : <div className="activity-log-list">{visibleActivities.map((event) => <article key={event.id}>
                 <div className="activity-event-tags"><span className={`event-severity ${event.severity}`}>{event.severity}</span><span className={`activity-category ${activityCategory(event)}`}>{activityCategory(event)}</span></div>
-                <div><h3>{activityLabel(event.eventType)}</h3><p>{event.detail || "No additional detail was recorded."}</p><small>{event.entityType ? `${event.entityType}${event.entityId ? ` · ${event.entityId}` : ""}` : "System"} · {shortDate(event.createdAt)}</small></div>
+                <div><h3>{activityLabel(event.eventType)}</h3><p>{event.detail || "No additional detail was recorded."}</p>{activityGuidance(event.eventType) && <p className="activity-guidance">{activityGuidance(event.eventType)}</p>}<small>{event.entityType ? `${event.entityType}${event.entityId ? ` · ${event.entityId}` : ""}` : "System"} · {shortDate(event.createdAt)}</small></div>
               </article>)}</div>}
         </div>}
 

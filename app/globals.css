@@ -24,6 +24,7 @@ body {
   color: var(--ink);
   font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 body.no-scroll { overflow: hidden; }
 a { color: inherit; text-decoration: none; }
@@ -1028,6 +1029,7 @@ footer a:hover, footer button:hover { color: white; }
 .activity-category.system { background: #ebebeb; color: #656565; }
 .activity-log-list h3 { margin: 0; font-family: var(--serif); font-size: 20px; font-weight: 400; }
 .activity-log-list p { margin: 7px 0 0; color: var(--ink-soft); font-family: var(--serif); font-size: 13px; line-height: 1.45; }
+.activity-log-list p.activity-guidance { margin-top: 12px; padding: 11px 13px; border-left: 2px solid var(--aqua-deep); background: #eef5f2; color: var(--ink); font-size: 12px; line-height: 1.5; }
 .activity-log-list small { display: block; margin-top: 10px; color: var(--ink-soft); font-size: 9px; }
 
 @media (max-width: 1180px) {
@@ -1690,4 +1692,56 @@ footer a:hover, footer button:hover { color: white; }
   .team-card { width: min(100% - 28px, 920px); margin: 35px auto; }
   .team-card form { grid-template-columns: 1fr; }
   .wishlist-grid { grid-template-columns: 1fr; }
+}
+
+/* Small-screen guardrails. These apply after the page-specific rules so every
+   customer and admin flow can shrink to a narrow phone without sideways page
+   scrolling. Intentional carousels and filter strips keep their own x-scroll.
+ */
+@media (max-width: 700px) {
+  .site-header, .checkout-header, .shop-header, .product-page-header, .account-header, .tracking-header { min-width: 0; }
+  .site-header > *, .checkout-header > *, .shop-header > *, .product-page-header > *, .account-header > *, .tracking-header > * { min-width: 0; }
+  .checkout-product { grid-template-columns: 105px minmax(0, 1fr); }
+  .checkout-product h2, .activity-log-list h3, .activity-log-list p, .activity-log-list small, .fulfilment-order-card h3, .fulfilment-order-card h4 { overflow-wrap: anywhere; }
+  .checkout-saved-address { grid-template-columns: minmax(0, 1fr); }
+  .checkout-saved-address select { width: 100%; }
+  .checkout-save-address span { min-width: 0; }
+  .payment-note { text-align: left; }
+  .shipping-preview { grid-template-columns: 1fr; }
+  .shipping-preview p { grid-column: auto; }
+  .shipping-rate-row, .pin-rule-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .shipping-rate-row > *, .pin-rule-row > * { min-width: 0; }
+  .shipping-rate-row .feature-toggle, .pin-rule-row .feature-toggle { align-items: flex-start; }
+  .shipping-advanced summary { padding-inline: 18px; line-height: 1.45; }
+  .shipping-advanced-content { padding-inline: 12px; }
+  .shipping-advanced-section { padding: 16px; }
+  .activity-heading h2, .orders-workspace-intro h2 { overflow-wrap: anywhere; }
+  .admin-notice { overflow-wrap: anywhere; }
+  .admin-topbar > div:last-child { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+  .admin-topbar > div:last-child > .button { margin-left: auto; }
+  .shop-footer > div { flex-wrap: wrap; gap: 10px 16px; }
+  .shop-help h2 { font-size: 34px; }
+  .tracking-error { flex-direction: column; gap: 9px; }
+  .tracking-items > div { align-items: flex-start; }
+  .account-order-top > strong { font-size: 20px; }
+  .address-card { flex-direction: column; }
+  .address-card > div:last-child { width: 100%; justify-content: flex-start; }
+}
+
+@media (max-width: 560px) {
+  .checkout-header, .shop-header, .product-page-header, .account-header, .tracking-header { grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; }
+  .checkout-header .checkout-wordmark, .shop-header .checkout-wordmark, .product-page-header .checkout-wordmark, .account-header .checkout-wordmark, .tracking-header .checkout-wordmark { justify-self: center; max-width: 100%; }
+  .shop-header-actions, .product-page-actions { min-width: 0; }
+  .tracking-header > span { min-width: 0; white-space: nowrap; }
+}
+
+@media (max-width: 380px) {
+  .wordmark { width: 136px; }
+  .checkout-wordmark { width: 126px; }
+  .shop-header-actions, .product-page-actions { gap: 6px; }
+  .shop-header-actions > a.shop-mobile-account, .shop-header-actions > a.shop-mobile-track, .product-page-actions a { font-size: 7px; letter-spacing: .04em; }
+  .checkout-form, .checkout-summary { padding-inline: 16px; }
+  .checkout-product { grid-template-columns: 88px minmax(0, 1fr); gap: 10px; }
+  .checkout-product img { width: 88px; height: 126px; }
+  .admin-main { padding-inline: 14px; }
 }

@@ -45,7 +45,21 @@ export default async function AdminPage() {
     for (const item of itemRows) itemsByOrder.set(item.orderId, [...(itemsByOrder.get(item.orderId) ?? []), item]);
     recentOrders = orderRows.map((order) => ({ ...order, items: itemsByOrder.get(order.id) ?? [] }));
     initialCoupons = couponRows;
-    recentEvents = eventRows;
+    const ordersById = new Map(orderRows.map((order) => [order.id, order]));
+    recentEvents = eventRows.map((event) => {
+      // Older payment-order events were recorded without a detail string and
+      // their temporary customer/cart data was scrubbed by design. Add the
+      // order number at read time so those records are still understandable;
+      // never recreate or expose data that no longer exists.
+      if (event.detail || event.eventType !== "checkout.payment_order_unavailable" || event.entityType !== "order" || !event.entityId) return event;
+      const order = ordersById.get(event.entityId);
+      if (!order) return event;
+      const items = itemsByOrder.get(order.id) ?? [];
+      const itemSummary = items.length
+        ? items.map((item) => `${item.quantity} x ${item.productName} · size ${item.size}`).join(", ").slice(0, 240)
+        : "Product snapshot unavailable; this unpaid checkout was scrubbed before the event was viewed";
+      return { ...event, detail: `Order ${order.orderNumber} · Products: ${itemSummary} · Historical record: payment order was unavailable` };
+    });
   } catch { /* The setup card in the dashboard is still useful before MySQL is connected. */ }
   return <AdminDashboard user={user} initialProducts={products} initialCategories={initialCategories} initialImports={imports} initialOrders={recentOrders} initialCoupons={initialCoupons} signOutPath="/logout" notificationConfigured={orderNotificationsConfigured()} initialStorefrontSettings={storefrontSettings} initialEvents={recentEvents} initialShippingConfiguration={shippingConfiguration} />;
 }
