@@ -700,6 +700,9 @@ footer a:hover, footer button:hover { color: white; }
 .whatsapp-checkout-button { width: min(100%, 420px); margin-top: 16px; border-color: #238d52; background: #28a95f; color: white; box-shadow: 0 7px 16px rgba(39, 142, 80, .18); text-decoration: none; }
 .whatsapp-checkout-button:hover { border-color: #1f7d48; background: #218f50; color: white; }
 .whatsapp-checkout-note { display: block; margin-top: 10px; color: #59635d; font-size: 10px; line-height: 1.45; }
+.checkout-delivery-timeline { max-width: 740px; margin-top: 24px; padding: 15px 17px; border-left: 3px solid var(--berry); background: #f5e9e9; }
+.checkout-delivery-timeline strong { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.checkout-delivery-timeline p { margin: 6px 0 0; color: var(--ink-soft); font-family: var(--serif); font-size: 13px; line-height: 1.5; }
 .checkout-summary { position: sticky; top: 0; align-self: start; max-height: 100svh; overflow-y: auto; padding: clamp(55px, 7vw, 100px) clamp(30px, 5vw, 80px); background: #dfeae8; }
 .checkout-products { border-top: 1px solid rgba(34,49,51,.16); }
 .checkout-product { display: grid; grid-template-columns: 135px 1fr; gap: 22px; padding: 20px 0 28px; border-bottom: 1px solid rgba(34,49,51,.16); }
