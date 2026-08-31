@@ -148,6 +148,7 @@ export default function Storefront({ product, products, categories, settings }: 
   const productMessage = `Hi Sana, I’m interested in the ${product.name}${product.color ? ` in ${product.color}` : ""}${selectedSize ? `, size ${selectedSize}` : ""}. Could you help me with sizing and availability?`;
   const sizeHelpMessage = `Hi Sana, I need help choosing a size for the ${product.name}${selectedSize ? ` in size ${selectedSize}` : ""}.`;
   const newsletterMessage = "Hi Sana, please add me to the Classy Apparels by Sana drop updates.";
+  const wholesaleMessage = "Hi Sana, I’m interested in placing a wholesale or bulk order. Please share your wholesale prices, minimum order quantity, available styles and delivery details.";
 
   function saveBag(next: BagItem[]) {
     const serialized = JSON.stringify(next.slice(0, 10));
@@ -229,6 +230,11 @@ export default function Storefront({ product, products, categories, settings }: 
         <div><Icon name="truck" /><span><strong>Delivery across India</strong><small>Shipping shown at checkout</small></span></div>
         <div><Icon name="rotate" /><span><strong>Easy size exchange</strong><small>Request within 3 days of delivery</small></span></div>
         <div><Icon name="shield" /><span><strong>Secure checkout</strong><small>UPI, cards and trusted payments</small></span></div>
+      </section>
+
+      <section className="wholesale-notice" aria-labelledby="wholesale-notice-title">
+        <div className="wholesale-copy"><p className="kicker">Retail &amp; wholesale</p><h2 id="wholesale-notice-title">Shopping for yourself<br /><em>or stocking up?</em></h2></div>
+        <div className="wholesale-details"><p>We welcome both retail and wholesale orders. All prices shown on this website are retail prices. For wholesale rates, bulk availability and minimum order details, message us directly.</p><a className="button wholesale-button" href={whatsappHref(wholesaleMessage)} target="_blank" rel="noreferrer">Wholesale bulk orders on WhatsApp <Icon name="arrow" size={18} /></a></div>
       </section>
 
       {categoryCards.length > 0 && <section className="category-showcase" aria-labelledby="category-showcase-title">
