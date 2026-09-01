@@ -92,9 +92,10 @@ type ActivityCategory = "all" | "payments" | "orders" | "shipping" | "storefront
 type SimpleShippingRate = { customerPrice: number; deliveryDaysMin: number; deliveryDaysMax: number };
 type SimpleShippingRates = Record<ShippingZone, SimpleShippingRate>;
 
-type Tab = "overview" | "products" | "categories" | "instagram" | "orders" | "activity" | "coupons" | "shipping" | "settings";
+type Tab = "overview" | "products" | "shop-order" | "categories" | "instagram" | "orders" | "activity" | "coupons" | "shipping" | "settings";
 type ProductField = "name" | "price" | "compareAt" | "categoryId" | "packedWeightGrams" | "images" | "hasSizes";
 type ProductFieldErrors = Partial<Record<ProductField, string>>;
+type ProductOrderMode = "custom" | "latest" | "oldest";
 
 // Keep a buffer below the route/hosting limit because multipart form data adds
 // a small amount of overhead around the image bytes.
@@ -344,6 +345,8 @@ export default function AdminDashboard({
   const [coupons, setCoupons] = useState(initialCoupons);
   const [selectedId, setSelectedId] = useState(initialProducts[0]?.id ?? "");
   const [draft, setDraft] = useState<CatalogProduct | null>(initialProducts[0] ?? null);
+  const [productOrderMode, setProductOrderMode] = useState<ProductOrderMode>("custom");
+  const [draggedProductId, setDraggedProductId] = useState("");
   const [productErrors, setProductErrors] = useState<ProductFieldErrors>({});
   const [selectedCouponId, setSelectedCouponId] = useState(initialCoupons[0]?.id ?? "");
   const [couponDraft, setCouponDraft] = useState<CouponDraft>(() => initialCoupons[0] ? couponToDraft(initialCoupons[0]) : emptyCouponDraft());
@@ -382,6 +385,12 @@ export default function AdminDashboard({
   const activeProducts = products.filter((product) => product.status === "active");
   const selectedHomepageProduct = activeProducts.find((product) => product.id === storefrontSettings.featuredProductId) ?? null;
   const homepageImages = selectedHomepageProduct?.images ?? [];
+  const productOrderItems = useMemo(() => {
+    const next = [...products];
+    if (productOrderMode === "latest") next.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+    if (productOrderMode === "oldest") next.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+    return next;
+  }, [products, productOrderMode]);
   const orderFilterCounts: Record<OrderFilter, number> = {
     to_pack: orders.filter((order) => isFulfillableOrder(order) && order.status === "paid").length,
     processing: orders.filter((order) => isFulfillableOrder(order) && order.status === "processing").length,
@@ -722,6 +731,60 @@ export default function AdminDashboard({
     setBusy(false);
   }
 
+  async function persistProductOrder(orderedIds: string[], message = "Shop order saved.") {
+    setBusy(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/products", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "reorder", orderedIds }) });
+      const result = await response.json().catch(() => ({})) as { orderedIds?: string[]; error?: string };
+      if (!response.ok || !result.orderedIds) {
+        setNotice(result.error || "Could not change the shop order.");
+        return false;
+      }
+      const rank = new Map(result.orderedIds.map((id, index) => [id, index]));
+      setProducts((current) => [...current].sort((left, right) => (rank.get(left.id) ?? 0) - (rank.get(right.id) ?? 0)).map((product, index) => ({ ...product, sortOrder: index })));
+      setDraft((current) => {
+        if (!current) return current;
+        const sortOrder = rank.get(current.id);
+        return sortOrder === undefined ? current : { ...current, sortOrder };
+      });
+      setNotice(message);
+      return true;
+    } catch {
+      setNotice("Could not change the shop order. Check your connection and try again.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function moveProductOrder(index: number, direction: -1 | 1) {
+    if (productOrderMode !== "custom") return;
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= productOrderItems.length) return;
+    const reordered = [...productOrderItems];
+    [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
+    void persistProductOrder(reordered.map((product) => product.id));
+  }
+
+  function dropProductOrder(targetId: string) {
+    if (productOrderMode !== "custom" || !draggedProductId || draggedProductId === targetId) return;
+    const fromIndex = productOrderItems.findIndex((product) => product.id === draggedProductId);
+    const targetIndex = productOrderItems.findIndex((product) => product.id === targetId);
+    if (fromIndex < 0 || targetIndex < 0) return;
+    const reordered = [...productOrderItems];
+    const [moved] = reordered.splice(fromIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+    setDraggedProductId("");
+    void persistProductOrder(reordered.map((product) => product.id));
+  }
+
+  async function applyProductOrderPreview() {
+    if (productOrderMode === "custom") return;
+    const saved = await persistProductOrder(productOrderItems.map((product) => product.id), `${productOrderMode === "latest" ? "Latest" : "Oldest"} products are now first in the shop.`);
+    if (saved) setProductOrderMode("custom");
+  }
+
   async function saveCoupon() {
     setBusy(true);
     setNotice("");
@@ -981,6 +1044,7 @@ export default function AdminDashboard({
   const nav: Array<{ id: Tab; label: string; count?: number }> = [
     { id: "overview", label: "Overview" },
     { id: "products", label: "Products", count: products.length },
+    { id: "shop-order", label: "Shop order" },
     { id: "categories", label: "Categories", count: categories.filter((category) => category.active).length },
     { id: "instagram", label: "Instagram queue", count: pendingImports.length },
     { id: "orders", label: "Orders", count: orders.length },
@@ -1046,6 +1110,25 @@ export default function AdminDashboard({
                 <div className="activity-event-tags"><span className={`event-severity ${event.severity}`}>{event.severity}</span><span className={`activity-category ${activityCategory(event)}`}>{activityCategory(event)}</span></div>
                 <div><h3>{activityLabel(event.eventType)}</h3><p>{event.detail || "No additional detail was recorded."}</p>{activityGuidance(event.eventType) && <p className="activity-guidance">{activityGuidance(event.eventType)}</p>}<small>{event.entityType ? `${event.entityType}${event.entityId ? ` · ${event.entityId}` : ""}` : "System"} · {shortDate(event.createdAt)}</small></div>
               </article>)}</div>}
+        </div>}
+
+        {tab === "shop-order" && <div className="shop-order-admin">
+          <section className="shop-order-intro">
+            <div><p className="kicker">Shop discovery</p><h2>Choose what customers see first.</h2><p>Drag products into the order you want. This controls the live <strong>/shop</strong> page and the homepage product slider. New products are added after the current order until you move them.</p></div>
+            <div className="shop-order-controls">
+              <label><span>Preview order</span><select value={productOrderMode} onChange={(event) => setProductOrderMode(event.target.value as ProductOrderMode)}><option value="custom">My saved order</option><option value="latest">Latest uploads first</option><option value="oldest">Oldest uploads first</option></select></label>
+              {productOrderMode !== "custom" && <button type="button" className="button button-dark" onClick={() => void applyProductOrderPreview()} disabled={busy}>Use this order</button>}
+              <small>{productOrderMode === "custom" ? "Drag or use the arrows to save a custom order." : "This is only a preview until you choose Use this order."}</small>
+            </div>
+          </section>
+          {!productOrderItems.length ? <div className="admin-empty"><span>◌</span><h2>Your shop order starts with your first product.</h2><p>Create a product, publish it, then return here to place it exactly where you want.</p></div> : <section className="shop-order-list" aria-label="Product shop order">
+            {productOrderItems.map((product, index) => <article key={product.id} className={`shop-order-row${draggedProductId === product.id ? " dragged" : ""}`} draggable={productOrderMode === "custom"} onDragStart={(event) => { if (productOrderMode !== "custom") return; setDraggedProductId(product.id); event.dataTransfer.effectAllowed = "move"; }} onDragOver={(event) => { if (productOrderMode === "custom") { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }} onDrop={(event) => { event.preventDefault(); dropProductOrder(product.id); }} onDragEnd={() => setDraggedProductId("")}>
+              <div className="shop-order-position"><strong>{String(index + 1).padStart(2, "0")}</strong><span aria-hidden="true">⠿</span></div>
+              <img src={product.images[0] || "/products/sea-mist-01.webp"} alt="" loading="lazy" decoding="async" />
+              <div className="shop-order-copy"><strong>{product.name}</strong><span>{rupees(product.price)} · {product.status} · Added {shortDate(product.createdAt)}</span><small>{product.featured ? "Featured on homepage" : "Available in shop order"}</small></div>
+              <div className="shop-order-actions"><button type="button" onClick={() => moveProductOrder(index, -1)} disabled={busy || productOrderMode !== "custom" || index === 0} aria-label={`Move ${product.name} earlier`}>↑</button><button type="button" onClick={() => moveProductOrder(index, 1)} disabled={busy || productOrderMode !== "custom" || index === productOrderItems.length - 1} aria-label={`Move ${product.name} later`}>↓</button><button type="button" className="text-link" onClick={() => openProduct(product.id)}>Edit</button></div>
+            </article>)}
+          </section>}
         </div>}
 
         {tab === "products" && <div className="product-admin-layout">

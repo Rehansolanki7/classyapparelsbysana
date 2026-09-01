@@ -1,4 +1,4 @@
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { categories, productImages, products, productVariants } from "../../../../db/schema";
 import { rejectUnlessAdmin } from "../../../../lib/admin-auth";
@@ -31,6 +31,7 @@ export async function POST(request: Request) {
   const baseSlug = productSlug(name) || `product-${id.slice(0, 6)}`;
   const [conflict] = await db.select({ id: products.id }).from(products).where(eq(products.slug, baseSlug)).limit(1);
   const slug = conflict ? `${baseSlug}-${id.slice(0, 6)}` : baseSlug;
+  const [lastProduct] = await db.select({ sortOrder: products.sortOrder }).from(products).orderBy(desc(products.sortOrder), desc(products.createdAt)).limit(1);
 
   await db.transaction(async (tx) => {
     await tx.insert(products).values({
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
       name,
       subtitle: "New draft",
       status: "draft",
+      sortOrder: (lastProduct?.sortOrder ?? -1) + 1,
       primaryImage: imageUrl,
       hasSizes: payload.hasSizes !== false,
     });
@@ -63,6 +65,8 @@ export async function PATCH(request: Request) {
   if (rejected) return rejected;
 
   const payload = (await request.json()) as {
+    action?: "reorder";
+    orderedIds?: string[];
     id?: string;
     name?: string;
     subtitle?: string;
@@ -82,6 +86,23 @@ export async function PATCH(request: Request) {
     images?: string[];
     variants?: Array<{ id: number; stock: number; active?: boolean }>;
   };
+  if (payload.action === "reorder") {
+    const rawOrderedIds = Array.isArray(payload.orderedIds) ? payload.orderedIds : [];
+    if (!rawOrderedIds.length || rawOrderedIds.some((id) => typeof id !== "string" || !id.length)) return Response.json({ error: "Choose each product exactly once." }, { status: 400 });
+    const orderedIds = rawOrderedIds as string[];
+    const uniqueIds = new Set(orderedIds);
+    if (!orderedIds.length || uniqueIds.size !== orderedIds.length) return Response.json({ error: "Choose each product exactly once." }, { status: 400 });
+    const db = getDb();
+    const rows = await db.select({ id: products.id }).from(products);
+    const knownIds = new Set(rows.map((row) => row.id));
+    if (rows.length !== orderedIds.length || orderedIds.some((id) => !knownIds.has(id))) return Response.json({ error: "The product list changed. Refresh and try again." }, { status: 409 });
+    await db.transaction(async (tx) => {
+      for (const [sortOrder, id] of orderedIds.entries()) {
+        await tx.update(products).set({ sortOrder }).where(eq(products.id, id));
+      }
+    });
+    return Response.json({ ok: true, orderedIds });
+  }
   if (!payload.id) return Response.json({ error: "Product id is required" }, { status: 400 });
   if (payload.status && !allowedStatuses.has(payload.status)) return Response.json({ error: "Invalid status" }, { status: 400 });
 

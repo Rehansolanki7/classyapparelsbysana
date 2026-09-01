@@ -14,6 +14,8 @@ export type CatalogVariant = {
 
 export type CatalogProduct = {
   id: string;
+  createdAt: string;
+  sortOrder: number;
   slug: string;
   name: string;
   eyebrow: string;
@@ -39,6 +41,8 @@ export type CatalogProduct = {
 
 export const FALLBACK_PRODUCT: CatalogProduct = {
   id: "sea-mist-set",
+  createdAt: "2025-01-01 00:00:00",
+  sortOrder: 0,
   slug: "sea-mist-3-piece-suit-set",
   name: "Sea Mist 3-Piece Suit Set",
   eyebrow: "The first Sana edit",
@@ -92,6 +96,8 @@ function mapProduct(
   const category = managedCategory?.name || row.category || "Uncategorised";
   return {
     id: row.id,
+    createdAt: row.createdAt,
+    sortOrder: row.sortOrder,
     slug: canonicalProductSlug(row.name, row.slug, row.id),
     name: row.name,
     eyebrow: row.subtitle,
@@ -150,7 +156,7 @@ export async function getAllProducts(): Promise<CatalogProduct[]> {
   try {
     const db = getDb();
     const [rows, categoryRows] = await Promise.all([
-      db.select().from(products).orderBy(asc(products.createdAt)),
+      db.select().from(products).orderBy(asc(products.sortOrder), asc(products.createdAt)),
       db.select().from(categories),
     ]);
     const categoriesById = new Map(categoryRows.map((category) => [category.id, category]));

@@ -75,6 +75,8 @@ export default function Storefront({ product, products, categories, settings }: 
   const [sizeOpen, setSizeOpen] = useState(false);
   const [selectedSize, setSelectedSize] = useState("");
   const [selectedImage, setSelectedImage] = useState(0);
+  const [heroProductIndex, setHeroProductIndex] = useState(() => Math.max(0, products.findIndex((item) => item.id === product.id)));
+  const [heroSliderPaused, setHeroSliderPaused] = useState(false);
   const [bag, setBag] = useState<BagItem[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [notice, setNotice] = useState("");
@@ -89,6 +91,11 @@ export default function Storefront({ product, products, categories, settings }: 
   const sizeDialogRef = useOverlayDialog<HTMLElement>(sizeOpen, closeSizeGuide);
   const searchDialogRef = useOverlayDialog<HTMLDivElement>(searchOpen, closeSearch, "input");
 
+  const heroProduct = products[heroProductIndex] ?? product;
+  const heroGalleryImages = heroProduct.images.length ? heroProduct.images : ["/products/sea-mist-01.webp"];
+  const heroImage = heroProduct.id === product.id && settings.featuredHeroImageUrl && heroGalleryImages.includes(settings.featuredHeroImageUrl)
+    ? settings.featuredHeroImageUrl
+    : heroGalleryImages[1] ?? heroGalleryImages[0];
   const sizes = product.variants.filter((variant) => variant.active && variant.stock > 0).map((variant) => variant.size);
   const defaultVariant = product.variants.find((variant) => variant.active) ?? product.variants[0];
   const cartSize = product.hasSizes ? selectedSize : defaultVariant?.size ?? "";
@@ -98,7 +105,6 @@ export default function Storefront({ product, products, categories, settings }: 
   const coverImage = galleryImages[0];
   const styledImage = galleryImages[1] ?? coverImage;
   const resolveHomepageImage = (imageUrl: string, fallback: string) => imageUrl && galleryImages.includes(imageUrl) ? imageUrl : fallback;
-  const heroImage = resolveHomepageImage(settings.featuredHeroImageUrl, styledImage);
   const detailPrimaryImage = resolveHomepageImage(settings.detailPrimaryImageUrl, galleryImages[2] ?? coverImage);
   const detailSecondaryImage = resolveHomepageImage(settings.detailSecondaryImageUrl, galleryImages[4] ?? styledImage);
   const categoryCards = useMemo(() => categories.filter((category) => category.showOnHomepage).flatMap((category) => {
@@ -107,6 +113,12 @@ export default function Storefront({ product, products, categories, settings }: 
     return image ? [{ ...category, image, productCount: categoryProducts.length }] : [];
   }), [categories, products]);
   const overlayOpen = menuOpen || cartOpen || sizeOpen || searchOpen;
+
+  useEffect(() => {
+    if (products.length < 2 || heroSliderPaused || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const interval = window.setInterval(() => setHeroProductIndex((current) => (current + 1) % products.length), 5_500);
+    return () => window.clearInterval(interval);
+  }, [heroSliderPaused, products.length]);
 
   useEffect(() => {
     document.body.classList.toggle("no-scroll", overlayOpen);
@@ -217,12 +229,16 @@ export default function Storefront({ product, products, categories, settings }: 
             <a className="button button-dark" href="/shop">Shop now <Icon name="arrow" size={18} /></a>
             <a className="text-link" href="https://www.instagram.com/classy_apparels_bysana/" target="_blank" rel="noreferrer">Follow on Instagram <Icon name="instagram" size={17} /></a>
           </div>
-          <div className="hero-note"><span>01</span><p>{product.color ? `${product.name} in ${product.color}.` : product.description}</p></div>
+          <div className="hero-note"><span>{String(heroProductIndex + 1).padStart(2, "0")}</span><p>{heroProduct.color ? `${heroProduct.name} in ${heroProduct.color}.` : heroProduct.description}</p></div>
         </div>
-        <div className="hero-visual">
+        <div className="hero-visual" onMouseEnter={() => setHeroSliderPaused(true)} onMouseLeave={() => setHeroSliderPaused(false)}>
           <div className="hero-image-backdrop" style={{ backgroundImage: `url(${heroImage})` }} />
-          <img src={heroImage} alt={`${product.name}, styled view`} className="hero-image" fetchPriority="high" decoding="async" />
-          <a className="hero-card" href={`/products/${product.slug}`} aria-label={`View ${product.name}`}><span>{settings.featuredKicker}</span><strong>{product.name}</strong><small>{money(product.price)}</small></a>
+          <img key={heroProduct.id} src={heroImage} alt={`${heroProduct.name}, styled view`} className="hero-image" fetchPriority="high" decoding="async" />
+          <a className="hero-card" href={`/products/${heroProduct.slug}`} aria-label={`View ${heroProduct.name}`}><span>{settings.featuredKicker}</span><strong>{heroProduct.name}</strong><small>{money(heroProduct.price)}</small></a>
+          {products.length > 1 && <div className="hero-slider-controls" aria-label="Featured products">
+            <div><button type="button" onClick={() => setHeroProductIndex((current) => (current - 1 + products.length) % products.length)} aria-label="Show previous featured product">←</button><span aria-live="polite">{String(heroProductIndex + 1).padStart(2, "0")} / {String(products.length).padStart(2, "0")}</span><button type="button" onClick={() => setHeroProductIndex((current) => (current + 1) % products.length)} aria-label="Show next featured product">→</button></div>
+            <div className="hero-slider-dots">{products.map((item, index) => <button type="button" key={item.id} className={index === heroProductIndex ? "active" : ""} onClick={() => setHeroProductIndex(index)} aria-label={`Show ${item.name}`} aria-current={index === heroProductIndex ? "true" : undefined} />)}</div>
+          </div>}
         </div>
       </section>
 
