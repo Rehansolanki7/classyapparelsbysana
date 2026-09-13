@@ -31,6 +31,7 @@ type OrderItem = {
   phone: string;
   addressLine1: string;
   addressLine2: string;
+  customerNote: string;
   city: string;
   state: string;
   countryCode: string;
@@ -912,7 +913,7 @@ export default function AdminDashboard({
 
   async function copyDeliveryDetails(order: OrderItem) {
     const items = order.items.map((item) => `${item.quantity} x ${item.productName} (${item.size})`).join("\n");
-    const text = `Order ${order.orderNumber}\n${order.customerName}\n${order.phone}\n${order.email}\n\n${deliveryAddress(order)}\n\nItems:\n${items}`;
+    const text = `Order ${order.orderNumber}\n${order.customerName}\n${order.phone}\n${order.email}\n\n${deliveryAddress(order)}${order.customerNote ? `\n\nNote for Sana:\n${order.customerNote}` : ""}\n\nItems:\n${items}`;
     try {
       await navigator.clipboard.writeText(text);
       setNotice(`Delivery details for ${order.orderNumber} copied.`);
@@ -1241,7 +1242,7 @@ export default function AdminDashboard({
                 <header><div><p className="kicker">{shortDate(order.createdAt)}</p><h3>{order.orderNumber}</h3></div><strong>{rupees(order.totalPaise / 100)}</strong><span className={`status-pill ${order.status}`}>{order.status.replace("_", " ")}</span></header>
                 {fulfilable ? <>
                   <div className="fulfilment-order-grid">
-                    <section className="order-customer-details"><p className="kicker">Delivery to</p><h4>{order.customerName}</h4><a href={`tel:${order.phone}`}>{order.phone}</a><a href={`mailto:${order.email}`}>{order.email}</a><p>{deliveryAddress(order)}</p><div><button type="button" className="button button-outline" onClick={() => copyDeliveryDetails(order)}>Copy delivery details</button>{whatsappUrl && <a className="text-link" href={whatsappUrl} target="_blank" rel="noreferrer">WhatsApp customer ↗</a>}</div></section>
+                    <section className="order-customer-details"><p className="kicker">Delivery to</p><h4>{order.customerName}</h4><a href={`tel:${order.phone}`}>{order.phone}</a><a href={`mailto:${order.email}`}>{order.email}</a><p>{deliveryAddress(order)}</p>{order.customerNote && <div className="order-customer-note"><strong>Note for Sana</strong><p>{order.customerNote}</p></div>}<div><button type="button" className="button button-outline" onClick={() => copyDeliveryDetails(order)}>Copy delivery details</button>{whatsappUrl && <a className="text-link" href={whatsappUrl} target="_blank" rel="noreferrer">WhatsApp customer ↗</a>}</div></section>
                     <section className="order-items-summary"><p className="kicker">Pack these items</p>{order.items.length ? order.items.map((item, index) => <div key={`${item.productName}-${item.size}-${index}`}><strong>{item.quantity} × {item.productName}</strong><span>Size {item.size}</span></div>) : <p>Line items are unavailable. Do not dispatch before checking the customer order record.</p>}</section>
                     <section className="order-fulfilment-actions"><p className="kicker">Fulfilment</p><h4>{order.status === "paid" ? "Ready to pack" : order.status === "processing" ? "Packing in progress" : order.status === "shipped" ? "On its way" : "Delivered"}</h4>{order.status !== "delivered" && <><label><span>Courier <small>optional for now</small></span><input value={order.courierName} onChange={(event) => updateOrderDraft(order.id, { courierName: event.target.value })} placeholder="Delhivery, Blue Dart…" /></label><label><span>Tracking number / AWB <small>can be added later</small></span><input value={order.trackingNumber} onChange={(event) => updateOrderDraft(order.id, { trackingNumber: event.target.value })} placeholder="Shipment reference" /></label><label><span>Tracking link <small>optional</small></span><input type="url" value={order.trackingUrl} onChange={(event) => updateOrderDraft(order.id, { trackingUrl: event.target.value })} placeholder="https://…" /></label><p className="order-tracking-hint">You can mark the order shipped now and add tracking details when the courier confirms the shipment.</p><div className="order-action-buttons"><button className="button button-outline" onClick={() => saveOrder(order, order.status, "Tracking details saved.")} disabled={busy}>Save tracking</button>{order.status === "paid" && <button className="button button-outline" onClick={() => saveOrder(order, "processing", "Order moved to packing.")} disabled={busy}>Start packing</button>}{nextAction && <button className="button button-dark" onClick={() => advanceOrder(order)} disabled={busy}>{nextAction}</button>}</div></>}{order.status === "delivered" && <p className="order-complete-note">This order is complete. Tracking details remain in the customer view.</p>}</section>
                   </div>

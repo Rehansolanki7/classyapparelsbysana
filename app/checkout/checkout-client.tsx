@@ -95,6 +95,7 @@ export default function CheckoutClient({
     phone: defaultAddress?.phone ?? "",
     addressLine1: defaultAddress?.addressLine1 ?? "",
     addressLine2: defaultAddress?.addressLine2 ?? "",
+    customerNote: "",
     city: defaultAddress?.city ?? "",
     state: defaultAddress?.state ?? "Maharashtra",
     countryCode: defaultAddress?.countryCode ?? "IN",
@@ -131,6 +132,7 @@ export default function CheckoutClient({
     `State / province: ${form.state.trim() || "—"}`,
     `Country: ${countryName(form.countryCode)}`,
     `${domestic ? "PIN code" : "Postal / ZIP code"}: ${form.postalCode.trim() || "—"}`,
+    ...(form.customerNote.trim() ? ["", `Note for Sana: ${form.customerNote.trim()}`] : []),
     "",
     `Product total: ${money(subtotal - discount)}`,
     (shippingNeedsQuote || manualShippingNeeded) ? "Shipping: Please confirm a manual quote." : `Order total: ${money(total)}`,
@@ -378,6 +380,7 @@ export default function CheckoutClient({
             <label><span>City</span><input value={form.city} onChange={(event) => update("city", event.target.value)} autoComplete="address-level2" required /></label>
             <label><span>{domestic ? "State / union territory" : "State / province / region"}</span>{domestic ? <select value={form.state} onChange={(event) => update("state", event.target.value)} autoComplete="address-level1" required>{INDIA_STATES.map((state) => <option key={state}>{state}</option>)}</select> : <input value={form.state} onChange={(event) => update("state", event.target.value)} autoComplete="address-level1" placeholder="Use N/A if not applicable" required />}</label>
             <label><span>{domestic ? "PIN code" : "Postal / ZIP code"}</span><input inputMode={domestic ? "numeric" : "text"} pattern={domestic ? "[1-9][0-9]{5}" : undefined} maxLength={domestic ? 6 : 16} value={form.postalCode} onChange={(event) => update("postalCode", domestic ? event.target.value.replace(/\D/g, "") : event.target.value.toUpperCase().replace(/[^A-Z0-9 /-]/g, ""))} onBlur={checkDestination} autoComplete="postal-code" placeholder={domestic ? "6-digit PIN" : "Use N/A if not applicable"} required />{deliveryNote && <small className="delivery-note">{deliveryNote}</small>}</label>
+            <label className="full"><span>Note for Sana <small>optional</small></span><textarea value={form.customerNote} onChange={(event) => update("customerNote", event.target.value)} maxLength={1000} rows={4} placeholder="Anything you’d like Sana to know about your order?" /><small>Share a delivery preference, sizing question, gift note or anything else that may help.</small></label>
           </div>
           {initialCustomer && !selectedAddressId && <label className="checkout-save-address"><input type="checkbox" checked={saveAddress} onChange={(event) => setSaveAddress(event.target.checked)} /><span>Save this delivery address to my account for a faster next checkout.</span></label>}
           {error && <div className={`checkout-error ${setupNeeded || manualShippingNeeded || packedWeightMissing ? "setup" : ""}`} role="alert"><strong>{setupNeeded ? "Online payment setup is pending" : paymentOrderUnavailable ? "Payment could not start" : packedWeightMissing ? "Product shipping setup is pending" : manualShippingNeeded ? (domestic ? "Delivery quote needed" : "International shipping quote needed") : "We couldn’t continue"}</strong><p>{error}</p>{(setupNeeded || manualShippingNeeded || packedWeightMissing) && <><a className="button whatsapp-checkout-button" href={whatsappHref(whatsappMessage)} target="_blank" rel="noreferrer">{manualShippingNeeded ? "Request shipping quote on WhatsApp" : packedWeightMissing ? "Message Sana about delivery" : "Complete this order on WhatsApp"} <span aria-hidden="true">→</span></a><small className="whatsapp-checkout-note">WhatsApp will open with your order and delivery details ready to send.</small></>}</div>}

@@ -176,6 +176,7 @@ export async function cancelPendingOrderAndRelease(orderId: string, failed = fal
         phone: redactCustomerData ? "" : undefined,
         addressLine1: redactCustomerData ? "" : undefined,
         addressLine2: redactCustomerData ? "" : undefined,
+        customerNote: redactCustomerData ? "" : undefined,
         city: redactCustomerData ? "" : undefined,
         state: redactCustomerData ? "" : undefined,
         countryCode: redactCustomerData ? "IN" : undefined,

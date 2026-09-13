@@ -24,6 +24,7 @@ type CheckoutPayload = {
     phone?: string;
     addressLine1?: string;
     addressLine2?: string;
+    customerNote?: string;
     city?: string;
     state?: string;
     countryCode?: string;
@@ -83,6 +84,7 @@ function validateCustomer(payload: CheckoutPayload) {
     phone: clean(customer.phone, 20).replace(/[^0-9+]/g, ""),
     addressLine1: clean(customer.addressLine1, 220),
     addressLine2: clean(customer.addressLine2, 220),
+    customerNote: clean(customer.customerNote, 1000),
     city: clean(customer.city, 100),
     state: clean(customer.state, 100),
     countryCode,
@@ -225,6 +227,7 @@ async function createOrder(request: Request) {
         phone: validated.customer.phone,
         addressLine1: validated.customer.addressLine1,
         addressLine2: validated.customer.addressLine2,
+        customerNote: validated.customer.customerNote,
         city: validated.customer.city,
         state: validated.customer.state,
         countryCode: validated.customer.countryCode,

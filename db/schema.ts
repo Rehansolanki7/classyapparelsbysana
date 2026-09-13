@@ -186,6 +186,8 @@ export const orders = mysqlTable("orders", {
   phone: varchar("phone", { length: 20 }).notNull(),
   addressLine1: varchar("address_line_1", { length: 220 }).notNull(),
   addressLine2: varchar("address_line_2", { length: 220 }).notNull().default(""),
+  /** Optional instructions or context the customer wants Sana to see. */
+  customerNote: varchar("customer_note", { length: 1000 }).notNull().default(""),
   city: varchar("city", { length: 100 }).notNull(),
   state: varchar("state", { length: 100 }).notNull(),
   countryCode: varchar("country_code", { length: 2 }).notNull().default("IN"),
