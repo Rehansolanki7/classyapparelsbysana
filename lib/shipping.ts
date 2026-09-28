@@ -1,12 +1,13 @@
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "../db";
-import { pincodeRules, shippingRateCards } from "../db/schema";
+import { internationalShippingRates, pincodeRules, shippingRateCards } from "../db/schema";
 import { normalizeCountryCode } from "./locations";
-import { type PincodeRule, type ShippingRateCard, type ShippingZone } from "./shipping-types";
+import { type InternationalShippingRate, type PincodeRule, type ShippingRateCard, type ShippingZone } from "./shipping-types";
 
-export { SHIPPING_ZONES, type PincodeRule, type ShippingRateCard, type ShippingZone } from "./shipping-types";
+export { SHIPPING_ZONES, type InternationalShippingRate, type PincodeRule, type ShippingRateCard, type ShippingZone } from "./shipping-types";
 
 export const SHIPPING_HANDLING_PAISE = 5_000;
+export const INTERNATIONAL_WEIGHT_STEP_GRAMS = 500;
 
 export type Serviceability = {
   serviceable: boolean;
@@ -94,6 +95,19 @@ function asPincodeRule(row: typeof pincodeRules.$inferSelect): PincodeRule {
   };
 }
 
+function asInternationalShippingRate(row: typeof internationalShippingRates.$inferSelect): InternationalShippingRate {
+  return {
+    id: row.id,
+    countryCode: row.countryCode,
+    pricePer500gPaise: row.pricePer500gPaise,
+    deliveryDaysMin: row.deliveryDaysMin,
+    deliveryDaysMax: row.deliveryDaysMax,
+    courierName: row.courierName,
+    serviceable: row.serviceable,
+    lastReviewedAt: row.lastReviewedAt,
+  };
+}
+
 export async function getShippingConfiguration() {
   const db = getDb();
   const [cardRows, ruleRows] = await Promise.all([
@@ -101,6 +115,12 @@ export async function getShippingConfiguration() {
     db.select().from(pincodeRules).orderBy(asc(pincodeRules.pincode)),
   ]);
   return { cards: cardRows.map(asRateCard), pincodeRules: ruleRows.map(asPincodeRule), handlingPaise: SHIPPING_HANDLING_PAISE };
+}
+
+export async function getInternationalShippingConfiguration() {
+  const db = getDb();
+  const rows = await db.select().from(internationalShippingRates).orderBy(asc(internationalShippingRates.countryCode));
+  return { rates: rows.map(asInternationalShippingRate), weightStepGrams: INTERNATIONAL_WEIGHT_STEP_GRAMS };
 }
 
 export function calculateShippingFromCards({
@@ -159,6 +179,45 @@ export function calculateShippingFromCards({
   });
 }
 
+/** Calculates an international courier price from the complete packed cart. */
+export function calculateInternationalShippingFromRates({
+  rates,
+  countryCode: countryCodeInput,
+  cartWeightGrams,
+}: {
+  rates: InternationalShippingRate[];
+  countryCode: string;
+  cartWeightGrams: number;
+}): Serviceability {
+  const countryCode = normalizeCountryCode(countryCodeInput);
+  const weight = normalizeWeight(cartWeightGrams);
+  if (!countryCode || countryCode === "IN") return result({ note: "Select a valid international delivery country." });
+  if (!weight) return result({ manualQuoteRequired: true, note: "This order needs a confirmed packed weight before payment. Please message Sana for a delivery quote." });
+
+  const rate = rates.find((item) => item.countryCode === countryCode);
+  if (!rate || !rate.serviceable) {
+    return result({
+      manualQuoteRequired: true,
+      cartWeightGrams: weight,
+      note: "We do not have an automatic courier rate for this country yet. Please request a shipping quote from Sana.",
+    });
+  }
+
+  const billedWeightGrams = Math.ceil(weight / INTERNATIONAL_WEIGHT_STEP_GRAMS) * INTERNATIONAL_WEIGHT_STEP_GRAMS;
+  const units = billedWeightGrams / INTERNATIONAL_WEIGHT_STEP_GRAMS;
+  const shippingPaise = units * rate.pricePer500gPaise;
+  return result({
+    serviceable: true,
+    cartWeightGrams: weight,
+    billedWeightGrams,
+    carrierChargePaise: shippingPaise,
+    shippingPaise,
+    deliveryDaysMin: rate.deliveryDaysMin,
+    deliveryDaysMax: rate.deliveryDaysMax,
+    note: `${rate.courierName ? `${rate.courierName} · ` : ""}International shipping for a ${billedWeightGrams.toLocaleString("en-IN")} g packed parcel. Duties and import taxes may be charged by your country separately.`,
+  });
+}
+
 /** Quotes domestic shipping from admin-maintained rate cards, never a spend threshold. */
 export async function shippingForDestination(countryCodeInput: string, postalCodeInput: string, destination: ShippingDestination = {}): Promise<Serviceability> {
   const countryCode = normalizeCountryCode(countryCodeInput);
@@ -166,7 +225,13 @@ export async function shippingForDestination(countryCodeInput: string, postalCod
 
   if (countryCode !== "IN") {
     if (!isValidInternationalPostalCode(postalCodeInput)) return result({ note: "Enter a valid postal or ZIP code. Use N/A where your country has no postal codes." });
-    return result({ manualQuoteRequired: true, cartWeightGrams: normalizeWeight(destination.cartWeightGrams), note: "International delivery is arranged by manual WhatsApp quote before payment." });
+    try {
+      const db = getDb();
+      const rateRows = await db.select().from(internationalShippingRates);
+      return calculateInternationalShippingFromRates({ rates: rateRows.map(asInternationalShippingRate), countryCode, cartWeightGrams: destination.cartWeightGrams ?? 0 });
+    } catch {
+      return result({ manualQuoteRequired: true, cartWeightGrams: normalizeWeight(destination.cartWeightGrams), note: "International courier rates are being reviewed. Please request a shipping quote from Sana." });
+    }
   }
 
   const pincode = postalCodeInput.replace(/\D/g, "").slice(0, 6);

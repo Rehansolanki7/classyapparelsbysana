@@ -9,7 +9,7 @@ import { getManagedCategories } from "../../lib/categories";
 import { orderNotificationsConfigured } from "../../lib/integrations";
 import { uploadUrl } from "../../lib/uploads";
 import { getStorefrontSettings } from "../../lib/storefront-settings";
-import { getShippingConfiguration } from "../../lib/shipping";
+import { getInternationalShippingConfiguration, getShippingConfiguration } from "../../lib/shipping";
 import AdminDashboard from "./admin-dashboard";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +25,8 @@ export default async function AdminPage() {
   const [products, storefrontSettings, initialCategories] = await Promise.all([getAllProducts(), getStorefrontSettings(), getManagedCategories(true)]);
   let shippingConfiguration: Awaited<ReturnType<typeof getShippingConfiguration>> = { cards: [], pincodeRules: [], handlingPaise: 5000 };
   try { shippingConfiguration = await getShippingConfiguration(); } catch { /* Admin shows a clear migration/setup state. */ }
+  let internationalShippingConfiguration: Awaited<ReturnType<typeof getInternationalShippingConfiguration>> = { rates: [], weightStepGrams: 500 };
+  try { internationalShippingConfiguration = await getInternationalShippingConfiguration(); } catch { /* Admin shows a clear migration/setup state. */ }
   let imports: Array<typeof instagramImports.$inferSelect & { imageUrl: string }> = [];
   let recentOrders: AdminOrder[] = [];
   let initialCoupons: Array<typeof coupons.$inferSelect> = [];
@@ -61,5 +63,5 @@ export default async function AdminPage() {
       return { ...event, detail: `Order ${order.orderNumber} · Products: ${itemSummary} · Historical record: payment order was unavailable` };
     });
   } catch { /* The setup card in the dashboard is still useful before MySQL is connected. */ }
-  return <AdminDashboard user={user} initialProducts={products} initialCategories={initialCategories} initialImports={imports} initialOrders={recentOrders} initialCoupons={initialCoupons} signOutPath="/logout" notificationConfigured={orderNotificationsConfigured()} initialStorefrontSettings={storefrontSettings} initialEvents={recentEvents} initialShippingConfiguration={shippingConfiguration} />;
+  return <AdminDashboard user={user} initialProducts={products} initialCategories={initialCategories} initialImports={imports} initialOrders={recentOrders} initialCoupons={initialCoupons} signOutPath="/logout" notificationConfigured={orderNotificationsConfigured()} initialStorefrontSettings={storefrontSettings} initialEvents={recentEvents} initialShippingConfiguration={shippingConfiguration} initialInternationalShippingConfiguration={internationalShippingConfiguration} />;
 }

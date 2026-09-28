@@ -255,6 +255,11 @@ export default function CheckoutClient({
     setPaymentOrderUnavailable(false);
     setManualShippingNeeded(false);
     setPackedWeightMissing(false);
+    if (!domestic && !hasConfirmedShipping) {
+      await checkDestination();
+      setBusy(false);
+      return;
+    }
     let localOrderId = "";
     let paymentWindowOpened = false;
     try {
@@ -388,7 +393,7 @@ export default function CheckoutClient({
           {manualShippingNeeded && !error && <div className="checkout-error setup"><strong>{domestic ? "Delivery quote needed" : "International delivery is available"}</strong><p>Shipping is arranged manually. Request the final courier quote before payment.</p><a className="button whatsapp-checkout-button" href={whatsappHref(whatsappMessage)} target="_blank" rel="noreferrer">Request shipping quote on WhatsApp <span aria-hidden="true">→</span></a></div>}
           <div className="checkout-delivery-timeline" role="note"><strong>Please note before ordering</strong><p>Processing times vary by product. Some pieces take up to 7 working days, while others take 10–12 working days. If your order includes products with different timelines, the longer timeline will apply to the complete order.</p></div>
           {!manualShippingNeeded && !packedWeightMissing && <button className="button button-dark pay-button" disabled={busy || !lines.length}>{busy ? "Checking delivery…" : shippingNeedsQuote ? "Check international delivery" : shippingPending ? "Continue to secure payment" : `Pay securely · ${money(total)}`}</button>}
-          <p className="payment-note">{shippingNeedsQuote ? "International shipping is confirmed manually before payment." : shippingPending ? "Shipping is calculated from packed weight and destination before the payment window opens." : "Payment is processed by Razorpay. Card and UPI credentials never pass through or remain on this website."}</p>
+          <p className="payment-note">{shippingNeedsQuote ? "International shipping is calculated from your packed order weight and destination before payment." : shippingPending ? "Shipping is calculated from packed weight and destination before the payment window opens." : "Payment is processed by Razorpay. Card and UPI credentials never pass through or remain on this website."}</p>
         </form>
 
         <aside className="checkout-summary">

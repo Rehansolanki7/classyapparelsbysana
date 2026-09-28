@@ -82,6 +82,10 @@ Before enabling live payments:
 5. Confirm administrator and customer notification emails.
 6. Switch to live credentials only after the complete test flow succeeds.
 
+## International shipping
+
+International destinations currently require a manual shipping quote. The proposed path to trusted on-site international checkout—including custom country/weight rates, duties messaging, admin controls, payment safeguards and a phased rollout—is documented in [`docs/INTERNATIONAL-SHIPPING-PLAN.md`](docs/INTERNATIONAL-SHIPPING-PLAN.md).
+
 ## Verification commands
 
 ```sh

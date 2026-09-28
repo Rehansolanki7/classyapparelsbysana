@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateShippingFromCards, shippingForDestination, type ShippingRateCard } from "../lib/shipping";
+import { calculateInternationalShippingFromRates, calculateShippingFromCards, shippingForDestination, type InternationalShippingRate, type ShippingRateCard } from "../lib/shipping";
 
 const cards: ShippingRateCard[] = [
   { id: 1, zone: "mumbai_local", weightLimitGrams: 500, carrierChargePaise: 2800, deliveryDaysMin: 2, deliveryDaysMax: 4, serviceable: true, lastReviewedAt: null },
@@ -58,4 +58,18 @@ test("international delivery stays a manual quote before payment", async () => {
   const manual = await shippingForDestination("GB", "SW1A 1AA", { cartWeightGrams: 500 });
   assert.equal(manual.serviceable, false);
   assert.equal(manual.manualQuoteRequired, true);
+});
+
+test("international shipping charges each 500 g unit from the complete packed cart", () => {
+  const rates: InternationalShippingRate[] = [
+    { id: 1, countryCode: "GB", pricePer500gPaise: 18000, deliveryDaysMin: 7, deliveryDaysMax: 12, courierName: "DHL", serviceable: true, lastReviewedAt: null },
+  ];
+  const quote = calculateInternationalShippingFromRates({ rates, countryCode: "GB", cartWeightGrams: 780 * 2 });
+  assert.deepEqual({ serviceable: quote.serviceable, shipping: quote.shippingPaise, billed: quote.billedWeightGrams, courier: quote.note }, { serviceable: true, shipping: 72000, billed: 2000, courier: "DHL · International shipping for a 2,000 g packed parcel. Duties and import taxes may be charged by your country separately." });
+});
+
+test("international rate selection blocks countries without an active admin rate", () => {
+  const quote = calculateInternationalShippingFromRates({ rates: [{ id: 1, countryCode: "GB", pricePer500gPaise: 18000, deliveryDaysMin: 7, deliveryDaysMax: 12, courierName: "", serviceable: false, lastReviewedAt: null }], countryCode: "US", cartWeightGrams: 780 });
+  assert.equal(quote.serviceable, false);
+  assert.equal(quote.manualQuoteRequired, true);
 });
