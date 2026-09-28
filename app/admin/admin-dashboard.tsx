@@ -6,9 +6,9 @@ import { useOverlayDialog } from "../components/use-overlay-dialog";
 import type { AppUser } from "../../lib/auth";
 import type { CatalogProduct } from "../../lib/catalog";
 import type { ManagedCategory } from "../../lib/categories";
-import { countryName } from "../../lib/locations";
+import { COUNTRIES, countryName } from "../../lib/locations";
 import type { StorefrontSettings } from "../../lib/storefront-settings";
-import { SHIPPING_ZONES, type PincodeRule, type ShippingRateCard, type ShippingZone } from "../../lib/shipping-types";
+import { SHIPPING_ZONES, type InternationalShippingRate, type PincodeRule, type ShippingRateCard, type ShippingZone } from "../../lib/shipping-types";
 
 type ImportItem = {
   id: number;
@@ -93,7 +93,7 @@ type ActivityCategory = "all" | "payments" | "orders" | "shipping" | "storefront
 type SimpleShippingRate = { customerPrice: number; deliveryDaysMin: number; deliveryDaysMax: number };
 type SimpleShippingRates = Record<ShippingZone, SimpleShippingRate>;
 
-type Tab = "overview" | "products" | "shop-order" | "categories" | "instagram" | "orders" | "activity" | "coupons" | "shipping" | "settings";
+type Tab = "overview" | "products" | "shop-order" | "categories" | "instagram" | "orders" | "activity" | "coupons" | "shipping" | "international" | "settings";
 type ProductField = "name" | "price" | "compareAt" | "categoryId" | "packedWeightGrams" | "images" | "hasSizes";
 type ProductFieldErrors = Partial<Record<ProductField, string>>;
 type ProductOrderMode = "custom" | "latest" | "oldest";
@@ -204,6 +204,8 @@ function activityLabel(eventType: string) {
     "admin.storefront_content_updated": "Homepage content published",
     "admin.shipping_rates_published": "Shipping prices published",
     "admin.shipping_rates_publish_failed": "Shipping price update failed",
+    "admin.international_shipping_rates_published": "International shipping prices published",
+    "admin.international_shipping_rates_publish_failed": "International shipping price update failed",
     "admin.order_legal_hold_enabled": "Order legal hold enabled",
     "admin.order_legal_hold_removed": "Order legal hold removed",
     "checkout.payment_order_unavailable": "Payment order could not be created",
@@ -320,6 +322,7 @@ export default function AdminDashboard({
   initialStorefrontSettings,
   initialEvents,
   initialShippingConfiguration,
+  initialInternationalShippingConfiguration,
 }: {
   user: AppUser;
   initialProducts: CatalogProduct[];
@@ -332,6 +335,7 @@ export default function AdminDashboard({
   initialStorefrontSettings: StorefrontSettings;
   initialEvents: SystemEvent[];
   initialShippingConfiguration: { cards: ShippingRateCard[]; pincodeRules: PincodeRule[]; handlingPaise: number };
+  initialInternationalShippingConfiguration: { rates: InternationalShippingRate[]; weightStepGrams: number };
 }) {
   const [tab, setTab] = useState<Tab>("overview");
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
@@ -363,6 +367,9 @@ export default function AdminDashboard({
   const [pinRules, setPinRules] = useState(initialShippingConfiguration.pincodeRules);
   const [simpleShippingRates, setSimpleShippingRates] = useState<SimpleShippingRates>(() => simpleShippingRatesFromCards(initialShippingConfiguration.cards));
   const [shippingPreview, setShippingPreview] = useState<{ zone: ShippingZone; weightGrams: number }>({ zone: "maharashtra", weightGrams: 500 });
+  const [internationalRates, setInternationalRates] = useState(initialInternationalShippingConfiguration.rates);
+  const [savedInternationalRates, setSavedInternationalRates] = useState(initialInternationalShippingConfiguration.rates);
+  const [internationalPreview, setInternationalPreview] = useState({ countryCode: "GB", weightGrams: 780 });
   const closeAdminMenu = useCallback(() => setAdminMenuOpen(false), []);
   const adminMenuDialogRef = useOverlayDialog<HTMLElement>(adminMenuOpen, closeAdminMenu, "[data-admin-menu-close]");
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -381,7 +388,8 @@ export default function AdminDashboard({
     ? JSON.stringify(couponDraft) !== JSON.stringify(couponToDraft(selectedCoupon))
     : Boolean(couponDraft.code || couponDraft.value !== 10 || couponDraft.minOrder || couponDraft.maxDiscount !== "" || couponDraft.startsAt || couponDraft.endsAt || couponDraft.usageLimit !== "" || !couponDraft.active);
   const categoryDirty = Boolean(newCategoryName.trim() || Object.keys(categoryEdits).length);
-  const hasUnsavedChanges = productDirty || couponDirty || categoryDirty;
+  const internationalShippingDirty = JSON.stringify(internationalRates) !== JSON.stringify(savedInternationalRates);
+  const hasUnsavedChanges = productDirty || couponDirty || categoryDirty || internationalShippingDirty;
   const selectedCouponStatus = selectedCoupon ? couponAvailability(selectedCoupon) : null;
   const activeProducts = products.filter((product) => product.status === "active");
   const selectedHomepageProduct = activeProducts.find((product) => product.id === storefrontSettings.featuredProductId) ?? null;
@@ -1023,6 +1031,27 @@ export default function AdminDashboard({
     setBusy(false);
   }
 
+  function addInternationalRate() {
+    const used = new Set(internationalRates.map((rate) => rate.countryCode));
+    const nextCountry = COUNTRIES.find((country) => country.code !== "IN" && !used.has(country.code));
+    if (!nextCountry) {
+      setNotice("Every country already has a row.");
+      return;
+    }
+    setInternationalRates((current) => [...current, { id: -Date.now(), countryCode: nextCountry.code, pricePer500gPaise: 0, deliveryDaysMin: 7, deliveryDaysMax: 15, courierName: "", serviceable: true, lastReviewedAt: null }]);
+  }
+
+  async function saveInternationalShipping() {
+    setBusy(true); setNotice("");
+    try {
+      const response = await fetch("/api/admin/international-shipping", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ rates: internationalRates }) });
+      const result = await response.json() as { error?: string; rates?: InternationalShippingRate[] };
+      if (!response.ok) setNotice(result.error || "Could not publish international shipping rates.");
+      else { const saved = result.rates ?? internationalRates; setInternationalRates(saved); setSavedInternationalRates(saved); setNotice("International shipping rates are live. Checkout will calculate the courier price from packed weight."); }
+    } catch { setNotice("Could not publish international shipping rates. Please try again."); }
+    setBusy(false);
+  }
+
   async function publishSimpleShipping() {
     for (const zone of SHIPPING_ZONES) {
       const rate = simpleShippingRates[zone];
@@ -1041,6 +1070,9 @@ export default function AdminDashboard({
   }
 
   const previewCard = shippingCards.filter((card) => card.zone === shippingPreview.zone && card.serviceable && card.weightLimitGrams >= shippingPreview.weightGrams).sort((left, right) => left.weightLimitGrams - right.weightLimitGrams)[0];
+  const internationalPreviewRate = internationalRates.find((rate) => rate.countryCode === internationalPreview.countryCode && rate.serviceable);
+  const internationalPreviewBilledWeight = Math.ceil(Math.max(1, internationalPreview.weightGrams) / 500) * 500;
+  const internationalPreviewShipping = internationalPreviewRate ? (internationalPreviewBilledWeight / 500) * internationalPreviewRate.pricePer500gPaise / 100 : null;
 
   const nav: Array<{ id: Tab; label: string; count?: number }> = [
     { id: "overview", label: "Overview" },
@@ -1052,6 +1084,7 @@ export default function AdminDashboard({
     { id: "activity", label: "Activity", count: initialEvents.length },
     { id: "coupons", label: "Coupons", count: coupons.length },
     { id: "shipping", label: "Shipping" },
+    { id: "international", label: "International shipping", count: internationalRates.filter((rate) => rate.serviceable).length },
     { id: "settings", label: "Site controls" },
   ];
 
@@ -1308,6 +1341,34 @@ export default function AdminDashboard({
             <section className="shipping-advanced-section"><div><h2>PIN-code exceptions</h2><p>Use this only for a remote area, a local Mumbai price, a manual quote or a location you cannot serve. Leave the courier price blank to use the normal zone price.</p></div><div className="pin-rule-list">{pinRules.map((rule, index) => <div className="pin-rule-row" key={`${rule.id}-${index}`}><input inputMode="numeric" maxLength={6} value={rule.pincode} placeholder="6-digit PIN" onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, pincode: event.target.value.replace(/\D/g, "").slice(0, 6) } : item))} /><select value={rule.zone ?? ""} onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, zone: (event.target.value || null) as ShippingZone | null } : item))}><option value="">Use normal zone</option>{SHIPPING_ZONES.map((zone) => <option key={zone} value={zone}>{zoneLabel(zone)}</option>)}</select><label><span>Courier price (₹)</span><input type="number" min="0" value={rule.carrierChargePaise === null ? "" : rule.carrierChargePaise / 100} onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, carrierChargePaise: event.target.value === "" ? null : Math.round(Number(event.target.value) * 100) } : item))} /></label><label className="feature-toggle"><input type="checkbox" checked={rule.serviceable} onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, serviceable: event.target.checked } : item))} /><span>Can deliver</span></label><label className="feature-toggle"><input type="checkbox" checked={rule.manualQuoteRequired} onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, manualQuoteRequired: event.target.checked } : item))} /><span>Ask on WhatsApp</span></label><input value={rule.note} placeholder="Message shown to customer" onChange={(event) => setPinRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, note: event.target.value } : item))} /><button type="button" className="text-link" onClick={() => setPinRules((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button></div>)}</div><button type="button" className="button button-outline" onClick={() => setPinRules((current) => [...current, { id: -Date.now(), pincode: "", zone: null, serviceable: true, manualQuoteRequired: false, carrierChargePaise: null, deliveryDaysMin: null, deliveryDaysMax: null, note: "" }])}>Add PIN exception</button></section>
             <button className="button button-dark" onClick={() => saveShipping()} disabled={busy || !shippingCards.length}>{busy ? "Publishing…" : "Publish advanced delivery setup"}</button>
           </div></details>
+        </div>}
+
+        {tab === "international" && <div className="shipping-admin">
+          <section className="storefront-editor international-shipping-editor">
+            <div>
+              <p className="kicker">International delivery</p>
+              <h2>Set the courier price per 500 g.</h2>
+              <p>Choose only countries your courier can serve. Checkout adds one 500 g unit for every part of the packed cart: a 780 g dress is billed as 1,000 g, while two 780 g dresses are billed as 2,000 g.</p>
+            </div>
+            <div className="international-shipping-preview">
+              <label><span>Preview country</span><select value={internationalPreview.countryCode} onChange={(event) => setInternationalPreview({ ...internationalPreview, countryCode: event.target.value })}>{COUNTRIES.filter((country) => country.code !== "IN").map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}</select></label>
+              <label><span>Packed cart weight (g)</span><input type="number" min="1" max="50000" value={internationalPreview.weightGrams} onChange={(event) => setInternationalPreview({ ...internationalPreview, weightGrams: Math.max(1, Number(event.target.value) || 1) })} /></label>
+              <p>{internationalPreviewRate && internationalPreviewShipping !== null ? <>Courier price: <strong>{rupees(internationalPreviewShipping)}</strong> for {internationalPreviewBilledWeight.toLocaleString("en-IN")} g ({internationalPreviewBilledWeight / 500} × 500 g)</> : "Add an active rate for this country to preview the checkout price."}</p>
+            </div>
+            <div className="international-rate-list">
+              <div className="international-rate-heading"><span>Country</span><span>Price / 500 g (₹)</span><span>Delivery (days)</span><span>Courier</span><span>Status</span><span /></div>
+              {internationalRates.map((rate, index) => <div className="international-rate-row" key={`${rate.id}-${index}`}>
+                <label><span>Country</span><select value={rate.countryCode} onChange={(event) => setInternationalRates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, countryCode: event.target.value } : item))}>{COUNTRIES.filter((country) => country.code !== "IN").map((country) => <option key={country.code} value={country.code}>{country.name}</option>)}</select></label>
+                <label><span>Price / 500 g (₹)</span><input type="number" min="1" max="100000" step="1" value={rate.pricePer500gPaise / 100} onChange={(event) => setInternationalRates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, pricePer500gPaise: Math.round(Number(event.target.value) * 100) } : item))} /></label>
+                <div className="international-days"><label><span>From</span><input type="number" min="1" max="90" value={rate.deliveryDaysMin} onChange={(event) => setInternationalRates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, deliveryDaysMin: Number(event.target.value) } : item))} /></label><i>to</i><label><span>To</span><input type="number" min="1" max="120" value={rate.deliveryDaysMax} onChange={(event) => setInternationalRates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, deliveryDaysMax: Number(event.target.value) } : item))} /></label></div>
+                <label><span>Courier name</span><input value={rate.courierName} placeholder="DHL / FedEx" onChange={(event) => setInternationalRates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, courierName: event.target.value } : item))} /></label>
+                <label className="feature-toggle international-active"><input type="checkbox" checked={rate.serviceable} onChange={(event) => setInternationalRates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, serviceable: event.target.checked } : item))} /><span>{rate.serviceable ? "Active" : "Paused"}</span></label>
+                <button type="button" className="text-link" onClick={() => setInternationalRates((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+              </div>)}
+            </div>
+            <div className="international-editor-actions"><button type="button" className="button button-outline" onClick={addInternationalRate}>Add country</button><button type="button" className="button button-dark" onClick={saveInternationalShipping} disabled={busy}>{busy ? "Publishing…" : "Publish international rates"}</button></div>
+            <p className="shipping-simple-note">Prices are charged in INR. Duties and import taxes are not included and may be collected by the destination country. Countries without an active row continue to the manual quote fallback.</p>
+          </section>
         </div>}
 
         {tab === "settings" && <div className="settings-grid">

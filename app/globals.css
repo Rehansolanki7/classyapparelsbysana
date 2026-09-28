@@ -1278,6 +1278,22 @@ footer a:hover, footer button:hover { color: white; }
 .shipping-rate-row .feature-toggle input, .pin-rule-row .feature-toggle input { min-height: 0; }
 .pin-rule-row { display: grid; grid-template-columns: 92px 145px 100px 95px 105px minmax(160px, 1fr) auto; align-items: end; gap: 8px; padding: 12px; border: 1px solid #d9e2de; background: #fff; }
 .shipping-admin .button + .button { margin-left: 10px; }
+.international-shipping-editor { background: #e0eeeb; }
+.international-shipping-preview { display: grid; grid-template-columns: 190px 190px minmax(240px, 1fr); gap: 14px; align-items: end; margin: 24px 0 18px; padding: 18px; background: rgba(255,255,255,.72); border: 1px solid #cbdad5; }
+.international-shipping-preview label, .international-rate-row label { display: grid; gap: 6px; font-size: 10px; color: var(--ink-soft); letter-spacing: .05em; text-transform: uppercase; }
+.international-shipping-preview select, .international-shipping-preview input, .international-rate-row input, .international-rate-row select { min-width: 0; min-height: 39px; padding: 8px; border: 1px solid #bccac3; background: #fff; font: inherit; }
+.international-shipping-preview p { margin: 0; line-height: 1.5; }
+.international-rate-list { display: grid; gap: 8px; margin: 18px 0; }
+.international-rate-heading, .international-rate-row { display: grid; grid-template-columns: minmax(150px, 1.2fr) 125px minmax(145px, 1fr) minmax(130px, 1fr) 75px auto; gap: 9px; align-items: end; }
+.international-rate-heading { padding: 0 12px 2px; color: var(--ink-soft); font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.international-rate-row { padding: 12px; border: 1px solid #d9e2de; background: #fff; }
+.international-rate-row label > span { display: none; }
+.international-days { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 6px; align-items: end; }
+.international-days i { padding-bottom: 12px; color: var(--ink-soft); font-style: normal; }
+.international-active { display: flex; align-items: center; gap: 6px; min-height: 39px; letter-spacing: 0; text-transform: none; }
+.international-active input { min-height: 0; }
+.international-editor-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.international-editor-actions .button { margin: 0; }
 .account-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 28px; }
 .account-setting-card { padding: 28px; border: 1px solid var(--line); background: white; }
 .account-setting-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
@@ -1333,6 +1349,12 @@ footer a:hover, footer button:hover { color: white; }
   .privacy-centre { grid-template-columns: 1fr; padding: 22px; }
   .shipping-preview, .shipping-rate-row, .pin-rule-row, .homepage-product-editor { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .simple-shipping-grid { grid-template-columns: 1fr; }
+  .international-shipping-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .international-rate-heading { display: none; }
+  .international-rate-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .international-rate-row label > span { display: block; }
+  .international-rate-row .international-days { grid-column: span 2; }
+  .international-rate-row .international-active { align-items: flex-start; }
   .homepage-product-editor > div:first-child, .homepage-image-picker, .homepage-product-hint { grid-column: 1 / -1; }
   .homepage-image-picker > div { grid-template-columns: 1fr; }
   .account-settings-grid, .address-list { grid-template-columns: 1fr; }
@@ -1786,6 +1808,9 @@ footer a:hover, footer button:hover { color: white; }
   .shipping-rate-row, .pin-rule-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .shipping-rate-row > *, .pin-rule-row > * { min-width: 0; }
   .shipping-rate-row .feature-toggle, .pin-rule-row .feature-toggle { align-items: flex-start; }
+  .international-shipping-preview { grid-template-columns: 1fr; }
+  .international-rate-row { grid-template-columns: 1fr; }
+  .international-rate-row .international-days { grid-column: auto; }
   .shipping-advanced summary { padding-inline: 18px; line-height: 1.45; }
   .shipping-advanced-content { padding-inline: 12px; }
   .shipping-advanced-section { padding: 16px; }

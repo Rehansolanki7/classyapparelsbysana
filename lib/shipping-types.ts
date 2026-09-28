@@ -23,3 +23,14 @@ export type PincodeRule = {
   deliveryDaysMax: number | null;
   note: string;
 };
+
+export type InternationalShippingRate = {
+  id: number;
+  countryCode: string;
+  pricePer500gPaise: number;
+  deliveryDaysMin: number;
+  deliveryDaysMax: number;
+  courierName: string;
+  serviceable: boolean;
+  lastReviewedAt: string | null;
+};

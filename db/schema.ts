@@ -311,6 +311,23 @@ export const shippingRateCards = mysqlTable("shipping_rate_cards", {
   index("shipping_rate_cards_zone_idx").on(table.zone, table.serviceable, table.weightLimitGrams),
 ]);
 
+/** Admin-managed international courier prices. Each row prices one country per 500 g. */
+export const internationalShippingRates = mysqlTable("international_shipping_rates", {
+  id: int("id").autoincrement().primaryKey(),
+  countryCode: varchar("country_code", { length: 2 }).notNull(),
+  pricePer500gPaise: int("price_per_500g_paise").notNull(),
+  deliveryDaysMin: int("delivery_days_min").notNull().default(7),
+  deliveryDaysMax: int("delivery_days_max").notNull().default(15),
+  courierName: varchar("courier_name", { length: 100 }).notNull().default(""),
+  serviceable: boolean("serviceable").notNull().default(true),
+  lastReviewedAt: datetime("last_reviewed_at", { mode: "string" }),
+  createdAt,
+  updatedAt,
+}, (table) => [
+  uniqueIndex("international_shipping_rates_country_unique").on(table.countryCode),
+  index("international_shipping_rates_active_idx").on(table.serviceable, table.countryCode),
+]);
+
 /** Minimal customer-deletion workflow record. It deliberately stores no address, order, OTP or payment data. */
 export const privacyRequests = mysqlTable("privacy_requests", {
   id: varchar("id", { length: 36 }).primaryKey(),
