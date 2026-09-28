@@ -17,6 +17,8 @@ export type AppUser = {
   adminAuthenticated: boolean;
 };
 export const SESSION_COOKIE = "classy_apparels_session";
+export const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24;
+const CUSTOMER_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 export type EmailCodePurpose = "sign_in" | "recovery" | "privacy_delete" | "admin_access";
 
 function dbTime(date = new Date()) {
@@ -216,11 +218,13 @@ export async function setPasswordForCurrentUser(user: AppUser, password: string,
 export async function signSession(user: AppUser) {
   const payload: { email: string; name: string; sessionVersion: number; adminAuthenticated: boolean; adminKeyVersion?: string } = { email: user.email, name: user.name, sessionVersion: user.sessionVersion, adminAuthenticated: user.adminAuthenticated };
   if (user.adminAuthenticated) payload.adminKeyVersion = adminAccessKeyVersion();
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const maxAge = user.adminAuthenticated ? ADMIN_SESSION_MAX_AGE_SECONDS : CUSTOMER_SESSION_MAX_AGE_SECONDS;
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(user.id)
-    .setIssuedAt()
-    .setExpirationTime(user.adminAuthenticated ? "8h" : "30d")
+    .setIssuedAt(issuedAt)
+    .setExpirationTime(issuedAt + maxAge)
     .sign(secret());
 }
 
@@ -271,7 +275,7 @@ export async function currentUser(): Promise<AppUser | null> {
 }
 
 export function sessionCookie(value: string, administrator = false) {
-  return { name: SESSION_COOKIE, value, options: { httpOnly: true, sameSite: "lax" as const, secure: process.env.NODE_ENV === "production", path: "/", maxAge: administrator ? 60 * 60 * 8 : 60 * 60 * 24 * 30 } };
+  return { name: SESSION_COOKIE, value, options: { httpOnly: true, sameSite: "lax" as const, secure: process.env.NODE_ENV === "production", path: "/", maxAge: administrator ? ADMIN_SESSION_MAX_AGE_SECONDS : CUSTOMER_SESSION_MAX_AGE_SECONDS } };
 }
 
 export function deleteSessionCookie() {
